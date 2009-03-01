@@ -23,20 +23,24 @@
 (defn xml-body [xml]
   (apply str (:content xml)))
 
+(defn xml-children [xml]
+  (:content xml))
+
 (defn xml-child [tag xml]
-  (first (filter #(= (:tag %) tag) (:content xml))))
+  (first (filter #(= (:tag %) tag) (xml-children xml))))
 
 (defn xml-attrib [attrib xml]
   (attrib (:attrs xml)))
 
 (defn xml-follow-path [xml path]
-  (if (empty? path)
-    xml
-    (let [f (first path)]
-      (cond (= f :body) (xml-body xml)
-	    (= f :attrib) (xml-attrib (second path) xml)
-	    (= f :child) (xml-follow-path (xml-child (second path) xml) (rest (rest path)))
-	    true (throw (Exception. (str "Illegal XML Path " path)))))))
+  (cond (keyword? path) (xml-attrib path xml)
+	(empty? path) xml
+	true
+	 (let [f (first path)]
+	   (cond (= f :body) (xml-body xml)
+		 (= f :attrib) (xml-attrib (second path) xml)
+		 (= f :child) (xml-follow-path (xml-child (second path) xml) (rest (rest path)))
+		 true (throw (Exception. (str "Illegal XML Path " path)))))))
 
 (defn convert-type [value type]
   (if (string? value)
@@ -61,8 +65,21 @@
        (sorted-map ~@member-inits))))
 
 (defapistruct flickr-user
-  (nsid (:attrib :nsid))
+  (nsid :nsid)
   (username (:child :username :body)))
+
+(defapistruct flickr-contact
+  (nsid :nsid)
+  (username :username)
+  (realname :realname)
+  (isfriend :friend :boolean)
+  (isfamily :family :boolean)
+  (ignored :ignored :boolean))
+
+(defapistruct flickr-public-contact
+  (id :nsid)
+  (username :username)
+  (ignored :ignored :boolean))
 
 (defn parse-xml-from-string [string]
   (let [stream (ByteArrayInputStream. (. string getBytes))]
@@ -121,6 +138,19 @@
 	     {:nsid (xml-attrib :nsid child)
 	      :username (xml-attrib :username child)})}))
 
+;; FIXME: doesn't work (says doesn't have permission).  also make it
+;; multi-page.
+(defcall "contacts.getList" [filter]
+  (let [result (if (nil? filter)
+		 (call)
+		 (call "filter" filter))]
+    (map make-flickr-contact (xml-children result))))
+
+;; FIXME: make multi-page
+(defcall "contacts.getPublicList" [nsid]
+  (let [result (call "user_id" nsid)]
+    (map make-flickr-public-contact (xml-children result))))
+
 (defcall "people.findByUsername" [name]
   (make-flickr-user (call "username" name)))
 
@@ -128,7 +158,7 @@
   (let [api-info {:api-key api-key :shared-secret shared-secret}
 	frob (auth-get-frob api-info)
 	api-info (assoc api-info :frob frob)
-	perms "read"
+	perms "write"
 	api-sig (arguments-signature api-info {"api_key" api-key "perms" perms "frob" frob} nil)
 	url (format "http://flickr.com/services/auth/?api_key=%s&perms=%s&frob=%s&api_sig=%s" api-key perms frob api-sig)]
     {:api-info api-info :url url}))
