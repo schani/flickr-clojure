@@ -1,5 +1,7 @@
 (import '(org.apache.xmlrpc.client XmlRpcClient XmlRpcClientConfigImpl))
 (import '(java.security MessageDigest))
+(import '(java.io ByteArrayInputStream))
+(refer 'clojure.xml)
 
 (def xml-rpc-client
      (let [config (new XmlRpcClientConfigImpl)
@@ -15,6 +17,13 @@
     (let [byte-arr (. digest digest)
 	  bigint (new BigInteger 1 byte-arr)]
       (. bigint toString 16))))
+
+(defn xml-body [xml]
+  (apply str (:content xml)))
+
+(defn parse-xml-from-string [string]
+  (let [stream (new ByteArrayInputStream (. string getBytes))]
+    (parse stream)))
 
 (defn arguments-signature [api-info args]
   (let [keys (sort (keys args))
@@ -32,7 +41,7 @@
 (defn make-flickr-call [api-info method modifier args]
   (let [full-args (full-call-args api-info method args)
 	result (. xml-rpc-client execute method [full-args])]
-    (modifier result)))
+    (modifier (parse-xml-from-string result))))
 
 (defn lispify-method-name [string]
   (apply str (mapcat (fn [c]
@@ -54,7 +63,7 @@
 	   ~@body))))
 
 (defcall "auth.getFrob" ()
-  (call))
+  (xml-body (call)))
 
 (defn request-authorization [api-key shared-secret]
   (let [api-info {:api-key api-key :shared-secret shared-secret}
