@@ -126,6 +126,14 @@
 				   (make-flickr-call ~api-info ~full-method-name-string modifier# (apply sorted-map args#)))]
 	 ~@body))))
 
+;; returns a list of the items, the total number of pages, and the
+;; total number of items.
+(defn multi-page-call [call-fun make-fun per-page page & args]
+  (let [result (apply call-fun "per_page" (str per-page) "page" (str page) args)]
+    {:items (map make-fun (xml-children result))
+     :pages (convert-type (xml-attrib :pages result) :integer)
+     :total (convert-type (xml-attrib :total result) :integer)}))
+
 (defcall "auth.getFrob" []
   (xml-body (call)))
 
@@ -138,18 +146,14 @@
 	     {:nsid (xml-attrib :nsid child)
 	      :username (xml-attrib :username child)})}))
 
-;; FIXME: doesn't work (says doesn't have permission).  also make it
-;; multi-page.
-(defcall "contacts.getList" [filter]
-  (let [result (if (nil? filter)
-		 (call)
-		 (call "filter" filter))]
-    (map make-flickr-contact (xml-children result))))
+;; FIXME: doesn't work (says doesn't have permission).
+(defcall "contacts.getList" [filter per-page page]
+  (if (nil? filter)
+    (multi-page-call call make-flickr-contact per-page page)
+    (multi-page-call call make-flickr-contact per-page page "filter" filter)))
 
-;; FIXME: make multi-page
-(defcall "contacts.getPublicList" [nsid]
-  (let [result (call "user_id" nsid)]
-    (map make-flickr-public-contact (xml-children result))))
+(defcall "contacts.getPublicList" [nsid per-page page]
+  (multi-page-call call make-flickr-public-contact per-page page "user_id" nsid))
 
 (defcall "people.findByUsername" [name]
   (make-flickr-user (call "username" name)))
