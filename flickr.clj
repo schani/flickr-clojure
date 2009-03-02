@@ -17,8 +17,10 @@
   (let [digest (. MessageDigest getInstance "MD5")]
     (. digest update (. string getBytes))
     (let [byte-arr (. digest digest)
-	  bigint (BigInteger. 1 byte-arr)]
-      (. bigint toString 16))))
+	  bigint (BigInteger. 1 byte-arr)
+	  bigint-str (. bigint toString 16)
+	  leading-zeros (apply str (replicate (- 32 (count bigint-str)) \0))]
+      (str leading-zeros bigint-str))))
 
 (defn xml-tag [xml]
   (:tag xml))
@@ -246,7 +248,7 @@
 
 (defn full-call-args [api-info method args]
   (let [full-args (reduce into (list {"api_key" (:api-key api-info)}
-				     (if-let [auth-token (:auth-token api-info)]
+				     (if-let [auth-token (:token api-info)]
 				       {"auth_token" auth-token}
 				       {})
 				     args))]
@@ -299,7 +301,6 @@
 	     {:nsid (xml-attrib :nsid child)
 	      :username (xml-attrib :username child)})}))
 
-;; FIXME: doesn't work (says doesn't have permission).
 (defcall "contacts.getList" [filter per-page page]
   (if (nil? filter)
     (multi-page-call call make-flickr-contact per-page page)
@@ -308,7 +309,6 @@
 (defcall "contacts.getPublicList" [nsid per-page page]
   (multi-page-call call make-flickr-public-contact per-page page "user_id" nsid))
 
-;; FIXME: doesn't work
 (defcall "favorites.getList" [nsid per-page page]
   (multi-page-call call make-flickr-favorite per-page page "user_id" nsid))
 
@@ -389,6 +389,12 @@
 (defcall "photosets.getPhotos" [photoset-id]
   (let [result (call "photoset_id" photoset-id)]
     (map make-flickr-photoset-photo (xml-children result))))
+
+(defcall "test.echo" []
+  (call-with-string-modifier #(str "<list>" % "</list>")))
+
+(defcall "test.login" []
+  (call))
 
 (defn request-authorization [api-key shared-secret]
   (let [api-info {:api-key api-key :shared-secret shared-secret}
