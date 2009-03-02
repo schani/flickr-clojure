@@ -1,9 +1,9 @@
 (import '(org.apache.xmlrpc.client XmlRpcClient XmlRpcClientConfigImpl))
 (import '(java.security MessageDigest))
 (import '(java.io ByteArrayInputStream))
-(refer 'clojure.xml)
-(refer 'clojure.contrib.seq-utils)
-(refer 'clojure.contrib.fcase)
+(use 'clojure.xml)
+(use 'clojure.contrib.seq-utils)
+(use 'clojure.contrib.fcase)
 
 (def xml-rpc-client
      (let [config (XmlRpcClientConfigImpl.)
@@ -61,7 +61,7 @@
 			       (let [[name path & type-list] member
 				     type (or (first type-list) :string)
 				     member-keyword (keyword (str name))]
-				 (if (and (list? path) (includes? (first path) '(fn fn*)))
+				 (if (and (list? path) (includes? '(fn fn*) (first path)))
 				   `(~member-keyword (~path ~xml-arg))
 				   `(~member-keyword (convert-type (xml-follow-path ~xml-arg '~path) ~type)))))
 			     members)]
@@ -115,6 +115,16 @@
   (admin :admin)
   (eighteenplus :eighteenplus :boolean))
 
+(defapistruct flickr-note
+  (id :id)
+  (author :author)
+  (authorname :authorname)
+  (x :x :integer)
+  (y :y :integer)
+  (w :w :integer)
+  (h :h :integer)
+  (text (:body)))
+
 (defapistruct flickr-person
   (id :nsid)
   (isadmin :isadmin :boolean)
@@ -129,6 +139,30 @@
   (firstdate (:child :photos :child :firstdate :body))
   (firstdatetaken (:child :photos :child :firstdatetaken :body))
   (count (:child :photos :child :count :body) :integer))
+
+(defapistruct flickr-photoset
+  (id :id)
+  (primary :primary)
+  (photos :photos)
+  (secret :secret)
+  (server :server)
+  (title (:child :title :body))
+  (description (:child :description :body)))
+
+(defapistruct flickr-photoset-info
+  (id :id)
+  (owner :owner)
+  (primary :primary)
+  (photos :photos)
+  (title (:child :title :body))
+  (description (:child :description :body)))
+
+(defapistruct flickr-photoset-photo
+  (id :id)
+  (secret :secret)
+  (server :server)
+  (title :title)
+  (isprimary :isprimary :boolean))
 
 (defapistruct flickr-public-contact
   (id :nsid)
@@ -145,9 +179,58 @@
   (isfriend :isfriend :boolean)
   (isfamily :isfamily :boolean))
 
+(defapistruct flickr-size
+  (label :label)
+  (width :width :integer)
+  (height :height :integer)
+  (source :source)
+  (url :url))
+
+(defapistruct flickr-tag
+  (id :id)
+  (author :author)
+  (raw :raw)
+  (machine-tag :machine_tag :boolean)
+  (text (:body)))
+
+(defapistruct flickr-url
+  (type :type)
+  (url (:body)))
+
 (defapistruct flickr-user
   (nsid :nsid)
   (username (:child :username :body)))
+
+;; Uses flickr-not, flickr-tag and flickr-url, so must come after
+;; them.
+(defapistruct flickr-full-photo
+  (id :id)
+  (secret :secret)
+  (server :server)
+  (isfavorite :isfavorite :boolean)
+  (license :license)
+  (rotation :rotation)
+  (owner (:child :owner :attrib :nsid))
+  (title (:child :title :body))
+  (description (:child :description :body))
+  (ispublic (:child :visibility :attrib :ispublic) :boolean)
+  (isfriend (:child :visibility :attrib :isfriend) :boolean)
+  (isfamily (:child :visibility :attrib :isfamily) :boolean)
+  (posted (:child :dates :attrib :posted))
+  (taken (:child :dates :attrib :taken))
+  (takengranularity (:child :dates :attrib :takengranularity))
+  (lastupdate (:child :dates :attrib :lastupdate))
+  (permcomment (:child :permissions :attrib :permcomment) :boolean)
+  (permaddmeta (:child :permissions :attrib :permaddmeta) :boolean)
+  (cancomment (:child :editability :attrib :cancomment) :boolean)
+  (canaddmeta (:child :editability :attrib :canaddmeta) :boolean)
+  (comments (:child :comments :attrib :body) :integer)
+  (notes (fn [xml]
+	     (map make-flickr-note (xml-children (xml-child :notes xml)))))
+  (tags (fn [xml]
+	    (map make-flickr-tag (xml-children (xml-child :tags xml)))))
+  (urls (fn [xml]
+	    (map make-flickr-url (xml-children (xml-child :urls xml))))))
 
 (defn parse-xml-from-string [string]
   (let [stream (ByteArrayInputStream. (. string getBytes))]
@@ -273,6 +356,18 @@
 	     (throw (Exception. (str "invalid context tag " (xml-tag item))))))
 	 (xml-children result))))
 
+(defcall "photos.getInfo" [photo-id secret]
+  (make-flickr-full-photo
+   (if (nil? secret)
+     (call "photo_id" photo-id)
+     (call "photo_id" photo-id "secret" secret))))
+
+(defcall "photos.getSizes" [photo-id]
+  (map make-flickr-size (xml-children (call "photo_id" photo-id))))
+
+(defcall "photos.removeTag" [tag-id]
+  (call "tag_id" tag-id))
+
 (defcall "photos.search" [per-page page & keyvals]
   (let [keyvals-map (apply hash-map keyvals)
 	optional-args (mapcat #(if-let [value ((key %) keyvals-map)]
@@ -283,6 +378,17 @@
 			       :min-taken-date "min_taken_date" :max-taken-date "max_taken_date"
 			       :licence "licence" :sort "sort"})]
     (apply multi-page-call call make-flickr-search-photo per-page page optional-args)))
+
+(defcall "photosets.getInfo" [photoset-id]
+  (make-flickr-photoset-info (call "photoset_id" photoset-id)))
+
+(defcall "photosets.getList" [user-id]
+  (let [result (call "user_id" user-id)]
+    (map make-flickr-photoset (xml-children result))))
+
+(defcall "photosets.getPhotos" [photoset-id]
+  (let [result (call "photoset_id" photoset-id)]
+    (map make-flickr-photoset-photo (xml-children result))))
 
 (defn request-authorization [api-key shared-secret]
   (let [api-info {:api-key api-key :shared-secret shared-secret}
