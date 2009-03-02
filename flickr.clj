@@ -20,6 +20,9 @@
 	  bigint (BigInteger. 1 byte-arr)]
       (. bigint toString 16))))
 
+(defn xml-tag [xml]
+  (:tag xml))
+
 (defn xml-body [xml]
   (apply str (:content xml)))
 
@@ -43,12 +46,13 @@
 		 true (throw (Exception. (str "Illegal XML Path " path)))))))
 
 (defn convert-type [value type]
-  (if (string? value)
-    (case type
-      :string value
-      :integer (BigInteger. value)
-      :boolean (not (zero? (BigInteger. value))))
-    :unknown))
+  (cond (string? value) (case type
+			  :string value
+			  :integer (BigInteger. value)
+			  :boolean (not (zero? (BigInteger. value)))
+			  (throw (Exception. (str "Illegal type " type))))
+	(nil? value) :unknown
+	true (throw (Exception. (str "Value to be converted (" value ") must be string or nil")))))
 
 (defmacro defapistruct [name & members]
   (let [parser-name (symbol (str "make-" name))
@@ -64,9 +68,13 @@
     `(defn ~parser-name [~xml-arg]
        (sorted-map ~@member-inits))))
 
-(defapistruct flickr-user
-  (nsid :nsid)
-  (username (:child :username :body)))
+(defapistruct flickr-comment
+  (id :id)
+  (author :author)
+  (authorname :authorname)
+  (date-create :date_create)
+  (permalink :permalink)
+  (text (:body)))
 
 (defapistruct flickr-contact
   (nsid :nsid)
@@ -76,10 +84,70 @@
   (isfamily :family :boolean)
   (ignored :ignored :boolean))
 
+(defapistruct flickr-context-set
+  (id :id)
+  (title :title))
+
+(defapistruct flickr-context-pool
+  (id :id)
+  (title :title))
+
+(defapistruct flickr-favorite
+  (id :id)
+  (owner :owner)
+  (secret :secret)
+  (server :server)
+  (title :title)
+  (ispublic :ispublic :boolean)
+  (isfriend :isfriend :boolean)
+  (isfamily :isfamily :boolean))
+
+(defapistruct flickr-group
+  (id :id)
+  (name (:child :name :body))
+  (description (:child :description :body))
+  (members (:child :members :body) :integer)
+  (privacy (:child :privacy :body)))
+
+(defapistruct flickr-list-group
+  (id :nsid)
+  (name :name)
+  (admin :admin)
+  (eighteenplus :eighteenplus :boolean))
+
+(defapistruct flickr-person
+  (id :nsid)
+  (isadmin :isadmin :boolean)
+  (ispro :ispro :boolean)
+  (iconserver :iconserver)
+  (username (:child :username :body))
+  (realname (:child :realname :body))
+  (location (:child :location :body))
+  (photosurl (:child :photosurl :body))
+  (profileurl (:child :profileurl :body))
+  (mobileurl (:child :mobileurl :body))
+  (firstdate (:child :photos :child :firstdate :body))
+  (firstdatetaken (:child :photos :child :firstdatetaken :body))
+  (count (:child :photos :child :count :body) :integer))
+
 (defapistruct flickr-public-contact
   (id :nsid)
   (username :username)
   (ignored :ignored :boolean))
+
+(defapistruct flickr-search-photo
+  (id :id)
+  (owner :owner)
+  (secret :secret)
+  (server :server)
+  (title :title)
+  (ispublic :ispublic :boolean)
+  (isfriend :isfriend :boolean)
+  (isfamily :isfamily :boolean))
+
+(defapistruct flickr-user
+  (nsid :nsid)
+  (username (:child :username :body)))
 
 (defn parse-xml-from-string [string]
   (let [stream (ByteArrayInputStream. (. string getBytes))]
@@ -101,10 +169,10 @@
 				     args))]
     (assoc full-args "api_sig" (arguments-signature api-info full-args method))))
 
-(defn make-flickr-call [api-info method modifier args]
+(defn make-flickr-call [api-info method string-modifier args]
   (let [full-args (full-call-args api-info method args)
 	result (. xml-rpc-client execute method [full-args])]
-    (modifier (parse-xml-from-string result))))
+    (parse-xml-from-string (string-modifier result))))
 
 (defn lispify-method-name [string]
   (apply str (mapcat (fn [c]
@@ -118,12 +186,14 @@
 	fun-name (symbol (lispify-method-name name-string))
 	api-info 'api-info
 	call 'call
-	call-with-modifier 'call-with-modifier]
+	call-with-string-modifier 'call-with-string-modifier]
     `(defn ~fun-name [~api-info ~@args]
-       (let [~call (fn [& args#]
-		     (make-flickr-call ~api-info ~full-method-name-string identity (apply sorted-map args#)))
-	     ~call-with-modifier (fn [modifier# & args#]
-				   (make-flickr-call ~api-info ~full-method-name-string modifier# (apply sorted-map args#)))]
+       (let [~call
+	     (fn [& args#]
+	       (make-flickr-call ~api-info ~full-method-name-string identity (apply sorted-map args#)))
+	     ~call-with-string-modifier
+	     (fn [modifier# & args#]
+	       (make-flickr-call ~api-info ~full-method-name-string modifier# (apply sorted-map args#)))]
 	 ~@body))))
 
 ;; returns a list of the items, the total number of pages, and the
@@ -155,8 +225,64 @@
 (defcall "contacts.getPublicList" [nsid per-page page]
   (multi-page-call call make-flickr-public-contact per-page page "user_id" nsid))
 
+;; FIXME: doesn't work
+(defcall "favorites.getList" [nsid per-page page]
+  (multi-page-call call make-flickr-favorite per-page page "user_id" nsid))
+
+(defcall "favorites.getPublicList" [nsid per-page page]
+  (multi-page-call call make-flickr-favorite per-page page "user_id" nsid))
+
+(defcall "groups.getInfo" [group-id]
+  (make-flickr-group (call "group_id" group-id)))
+
+(defcall "groups.pools.add" [photo-id group-id]
+  (call "photo_id" photo-id "group_id" group-id))
+
+(defcall "groups.pools.getPhotos" [group-id per-page page tags]
+  (if (nil? tags)
+    (multi-page-call call make-flickr-search-photo per-page page "group_id" group-id)
+    (multi-page-call call make-flickr-search-photo per-page page "group_id" group-id "tags" tags)))
+
+(defcall "groups.pools.remove" [photo-id group-id]
+  (call "group_id" group-id "photo_id" photo-id))
+
 (defcall "people.findByUsername" [name]
   (make-flickr-user (call "username" name)))
+
+(defcall "people.getInfo" [nsid]
+  (make-flickr-person (call "user_id" nsid)))
+
+(defcall "people.getPublicGroups" [nsid]
+  (let [result (call "user_id" nsid)]
+    (map make-flickr-list-group (xml-children result))))
+
+(defcall "photos.addTags" [photo-id tags]
+  (let [tags-string (apply str (interpose " " (map #(str \" % \") tags)))]
+    (call "photo_id" photo-id "tags" tags-string)))
+
+(defcall "photos.comments.getList" [photo-id]
+  (let [result (call "photo_id" photo-id)]
+    (map make-flickr-comment (xml-children result))))
+
+(defcall "photos.getAllContexts" [photo-id]
+  (let [result (call-with-string-modifier #(str "<list>" % "</list>") "photo_id" photo-id)]
+    (map (fn [item]
+	   (case (xml-tag item)
+	     :set (assoc (make-flickr-context-set item) :type 'set)
+	     :pool (assoc (make-flickr-context-pool item) :type 'pool)
+	     (throw (Exception. (str "invalid context tag " (xml-tag item))))))
+	 (xml-children result))))
+
+(defcall "photos.search" [per-page page & keyvals]
+  (let [keyvals-map (apply hash-map keyvals)
+	optional-args (mapcat #(if-let [value ((key %) keyvals-map)]
+				 (list (val %) value)
+				 ())
+			      {:user-id "user_id" :tags "tags" :tag-mode "tag-mode" :text "text"
+			       :min-upload-data "min_upload_date" :max-upload-date "max_upload_date"
+			       :min-taken-date "min_taken_date" :max-taken-date "max_taken_date"
+			       :licence "licence" :sort "sort"})]
+    (apply multi-page-call call make-flickr-search-photo per-page page optional-args)))
 
 (defn request-authorization [api-key shared-secret]
   (let [api-info {:api-key api-key :shared-secret shared-secret}
