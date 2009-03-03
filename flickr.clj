@@ -407,3 +407,11 @@
 
 (defn complete-authorization [api-info]
   (into api-info (auth-get-token api-info)))
+
+(defn collect-pages [fetcher per-page first]
+  (lazy-seq
+    (let [previous-total (* per-page (dec first))
+	  {items :items pages :pages total :total} (fetcher per-page first)]
+      (if (<= total (+ previous-total (count items)))
+	items
+	(concat items (collect-pages fetcher per-page (inc first)))))))
