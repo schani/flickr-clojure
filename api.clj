@@ -79,7 +79,7 @@
   (text (:body)))
 
 (defapistruct flickr-contact
-  (nsid :nsid)
+  (id :nsid)
   (username :username)
   (realname :realname)
   (isfriend :friend :boolean)
@@ -200,7 +200,7 @@
   (url (:body)))
 
 (defapistruct flickr-user
-  (nsid :nsid)
+  (id :nsid)
   (username (:child :username :body)))
 
 ;; Uses flickr-not, flickr-tag and flickr-url, so must come after
@@ -257,6 +257,7 @@
 (defn make-flickr-call [api-info method string-modifier args]
   (let [full-args (full-call-args api-info method args)
 	result (. xml-rpc-client execute method [full-args])]
+    (printf "making call to %s with args %s\n" method (str args))
     (parse-xml-from-string (string-modifier result))))
 
 (defn lispify-method-name [string]
@@ -356,11 +357,11 @@
 	     (throw (Exception. (str "invalid context tag " (xml-tag item))))))
 	 (xml-children result))))
 
-(defcall "photos.getInfo" [photo-id secret]
+(defcall "photos.getInfo" [photo-id & secret]
   (make-flickr-full-photo
-   (if (nil? secret)
+   (if (empty? secret)
      (call "photo_id" photo-id)
-     (call "photo_id" photo-id "secret" secret))))
+     (call "photo_id" photo-id "secret" (first secret)))))
 
 (defcall "photos.getSizes" [photo-id]
   (map make-flickr-size (xml-children (call "photo_id" photo-id))))
