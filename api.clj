@@ -254,10 +254,13 @@
 				     args))]
     (assoc full-args "api_sig" (arguments-signature api-info full-args method))))
 
+(def *print-calls* false)
+
 (defn make-flickr-call [api-info method string-modifier args]
+  (when *print-calls*
+    (printf "making call to %s with args %s\n" method (str args)))
   (let [full-args (full-call-args api-info method args)
 	result (. xml-rpc-client execute method [full-args])]
-    (printf "making call to %s with args %s\n" method (str args))
     (parse-xml-from-string (string-modifier result))))
 
 (defn lispify-method-name [string]
