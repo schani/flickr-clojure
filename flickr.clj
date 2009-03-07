@@ -131,7 +131,6 @@
 	    (title)}
   :fetcher [flickr-photoset-info photosets-get-info])
 
-;;MISSING: photos
 (defapiclass group
   :sources {flickr-group
 	    (title description privacy)
@@ -139,7 +138,10 @@
 	    (title)
 	    flickr-context-pool
 	    (title)}
-  :fetcher [flickr-group groups-get-info])
+  :fetcher [flickr-group groups-get-info]
+  :custom-fetchers [photos])
+
+;;; photo fetchers
 
 (def-multi-page-fetcher [user]
   photos make-photo-from-flickr-search-photo
@@ -161,12 +163,10 @@
   favorites make-photo-from-flickr-favorite
   (favorites-get-public-list api-info (id user) per-page page))
 
-
-
-
+;;; group fetchers
 
 (def-multi-page-fetcher [group]
   photos make-photo-from-flickr-search-photo
-  (groups-pools-get-photos api-info (id group) per-page page))
+  (groups-pools-get-photos api-info (id group) per-page page nil))
 
 ;;MISSING: contact-info
