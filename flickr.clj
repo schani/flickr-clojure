@@ -65,18 +65,22 @@
 		   (defn ~maker-name [api-info# struct#]
 		     (~taker-name (~constructor-name api-info# (:id struct#)) struct#)))))
 	     struct-names)
-     `((defn ~fetcher-name [instance#]
-	 (let [struct# (~fetch-func (:api-info instance#) (:id instance#))]
-	   (~(make-taker-name fetch-struct) instance# struct#)
-	   instance#)))
+     (when fetch-struct
+       `((defn ~fetcher-name [instance#]
+	   (let [struct# (~fetch-func (:api-info instance#) (:id instance#))]
+	     (~(make-taker-name fetch-struct) instance# struct#)
+	     instance#))))
      (map (fn [slot-name]
 	    (let [slot-keyword (keyword (name slot-name))]
-	      `(defmethod ~slot-name ~type-keyword [instance#]
-		 (dosync
-		  (or (deref (~slot-keyword instance#))
-		      (do
-			(~fetcher-name instance#)
-			(deref (~slot-keyword instance#))))))))
+	      (if fetch-struct
+		`(defmethod ~slot-name ~type-keyword [instance#]
+		   (dosync
+		    (or (deref (~slot-keyword instance#))
+			(do
+			  (~fetcher-name instance#)
+			  (deref (~slot-keyword instance#))))))
+		`(defmethod ~slot-name ~type-keyword [instance#]
+		   (deref (~slot-keyword instance#))))))
 	  source-slot-names)
      (map (fn [fetcher-name]
 	    `(def ~fetcher-name))
@@ -101,7 +105,7 @@
   :fetcher [flickr-person people-get-info]
   :custom-fetchers [photos photosets groups contacts favorites])
 
-;;MISSING: owner, notes, tags, sets, groups, sizes, comments, num-views, num-favs
+;;MISSING: owner, notes, tags, sets, groups, num-views, num-favs
 (defapiclass photo
   :sources {flickr-full-photo
 	    (secret server isfavorite license rotation
@@ -119,7 +123,8 @@
 	    flickr-favorite
 	    (secret server title
 		    ispublic isfriend isfamily)}
-  :fetcher [flickr-full-photo photos-get-info])
+  :fetcher [flickr-full-photo photos-get-info]
+  :custom-fetchers [sizes comments])
 
 ;;MISSING: owner
 (defapiclass photoset
@@ -141,6 +146,11 @@
 	    (title)}
   :fetcher [flickr-group groups-get-info]
   :custom-fetchers [photos])
+
+;;MISSING: author
+(defapiclass comment
+  :sources {flickr-comment
+	    (date-create permalink text)})
 
 ;;; photo fetchers
 
@@ -175,5 +185,14 @@
 (def-multi-page-fetcher [group]
   photos make-photo-from-flickr-search-photo
   (groups-pools-get-photos api-info (id group) per-page page nil))
+
+;;; photo fetchers
+
+(defn fetch-photo-sizes [photo]
+  (photos-get-sizes (:api-info photo) (id photo)))
+
+(defn fetch-photo-comments [photo]
+  (map #(make-comment-from-flickr-comment (:api-info photo) %)
+       (photos-comments-get-list (:api-info photo) (id photo))))
 
 ;;MISSING: contact-info
