@@ -121,7 +121,7 @@
 		    ispublic isfriend isfamily)}
   :fetcher [flickr-full-photo photos-get-info])
 
-;;MISSING: owner, photos
+;;MISSING: owner
 (defapiclass photoset
   :sources {flickr-photoset
 	    (primary secret server title description)
@@ -129,7 +129,8 @@
 	    (primary title description)
 	    flickr-context-set
 	    (title)}
-  :fetcher [flickr-photoset-info photosets-get-info])
+  :fetcher [flickr-photoset-info photosets-get-info]
+  :custom-fetchers [photos])
 
 (defapiclass group
   :sources {flickr-group
@@ -162,6 +163,12 @@
 (def-multi-page-fetcher [user]
   favorites make-photo-from-flickr-favorite
   (favorites-get-public-list api-info (id user) per-page page))
+
+;;; photoset fetchers
+
+(defn fetch-photoset-photos [photoset]
+  (map #(make-photo-from-flickr-photoset-photo (:api-info photoset) %)
+       (photosets-get-photos (:api-info photoset) (id photoset))))
 
 ;;; group fetchers
 
