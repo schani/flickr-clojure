@@ -44,7 +44,7 @@
 
 (defn- lookup-or-create-instance [api-info type id creator]
   (dosync
-   (let [creator (fn [] (merge {:entity-type type :api-info api-info :id id} (creator)))
+   (let [creator (fn [] (with-meta (merge {:api-info api-info :id id} (creator)) {:type type}))
 	 instance-maps (deref (:instance-maps api-info))]
      (if-let [instance-map (instance-maps type)]
        (or (instance-map id)
@@ -71,11 +71,12 @@
 	type-keyword (keyword (str (ns-name *ns*)) (capitalize-string (str class-name)))
 	slot-constructors (mapcat (fn [element-name]
 				    (list (keyword (name element-name)) '(ref nil)))
-				  slot-names)]
+				  slot-names)
+	print-prefix (str "#<" (capitalize-string (str class-name)) ": ")]
     (concat
      '(do)
      (map (fn [slot-name]
-	    `(defmulti ~slot-name :entity-type))
+	    `(defmulti ~slot-name type))
 	  (filter #(not (contains? (ns-interns *ns*) %)) slot-names))
      (map (fn [fetcher-name]
 	    `(defvar- ~fetcher-name))
@@ -83,7 +84,11 @@
 		  (concat (map make-slot-fetcher-name custom-fetchers)
 			  (map #(nth (deconstruct-source %) 2) (vals sources)))))
      `((defn ~constructor-name [api-info# id#]
-	 (lookup-or-create-instance api-info# ~type-keyword id# (fn [] (hash-map ~@slot-constructors)))))
+	 (lookup-or-create-instance api-info# ~type-keyword id# (fn [] (hash-map ~@slot-constructors))))
+       (defmethod print-method ~type-keyword [instance# w#]
+	 (. w# write ~print-prefix)
+	 (. w# write (id instance#))
+	 (. w# write ">")))
      (mapcat (fn [struct-name]
 	       (let [taker-name (make-taker-name struct-name)
 		     maker-name (symbol (str "make-" class-name "-from-" struct-name))
