@@ -28,12 +28,22 @@
 				     50 1)]
 	 (map (fn [x#] (~converter ~api-info x#)) api-seq#)))))
 
+(defn deconstruct-source [src]
+  (let [count (count src)]
+    (if (= (nth src (- count 3)) :custom)
+      [(take (- count 3) src) (nth src (- count 2)) (nth src (- count 1))]
+      [src nil nil])))
+
+(defn source-slots [src]
+  (let [[auto-slots custom-slots getter] (deconstruct-source src)]
+    (concat auto-slots custom-slots)))
+
 (defmacro defapiclass [class-name & keyvals]
   (let [{sources :sources [fetch-struct fetch-func] :fetcher custom-fetchers :custom-fetchers} (apply hash-map keyvals)
 	make-taker-name (fn [struct-name]
 			  (symbol (str class-name "-take-values-from-" struct-name)))
 	make-slot-fetcher-name (fn [slot-name] (symbol (str "fetch-" class-name "-" slot-name)))
-	source-slot-names (apply concat (vals sources))
+	source-slot-names (apply concat (map source-slots (vals sources)))
 	slot-names (concat custom-fetchers source-slot-names)
 	struct-names (keys sources)
 	constructor-name (symbol (str "make-" class-name))
@@ -47,21 +57,36 @@
      (map (fn [slot-name]
 	    `(defmulti ~slot-name :entity-type))
 	  (filter #(not (contains? (ns-interns *ns*) %)) slot-names))
+     (map (fn [fetcher-name]
+	    `(def ~fetcher-name))
+	  (filter #(and (not (nil? %)) (not (contains? (ns-interns *ns*) %)))
+		  (concat (map make-slot-fetcher-name custom-fetchers)
+			  (map #(nth (deconstruct-source %) 2) (vals sources)))))
      `((defn ~constructor-name [api-info# id#]
 	 (merge {:entity-type ~type-keyword :api-info api-info# :id id#} (hash-map ~@slot-constructors))))
      (mapcat (fn [struct-name]
 	       (let [taker-name (make-taker-name struct-name)
 		     maker-name (symbol (str "make-" class-name "-from-" struct-name))
-		     elements (map #(keyword (name %)) (sources struct-name))
+		     [auto-slots custom-slots getter] (deconstruct-source (sources struct-name))
 		     instance 'instance
 		     struct 'struct
-		     element-sets (map (fn [kw]
-					 `(ref-set (~kw ~instance) (~kw ~struct)))
-				       elements)]
+		     getter-call (if getter
+				   `(~getter ~instance ~struct)
+				   'nil)
+		     auto-elements (map #(keyword (name %)) auto-slots)
+		     auto-element-sets (map (fn [kw]
+					      `(ref-set (~kw ~instance) (~kw ~struct)))
+					    auto-elements)
+		     custom-elements (map #(keyword (name %)) custom-slots)
+		     custom-element-sets (map (fn [var kw]
+						`(ref-set (~kw ~instance) ~var))
+					      custom-slots custom-elements)]
 		 `((defn ~taker-name [~instance ~struct]
-		     (dosync
-		      ~@element-sets)
-		     ~instance)
+		     (let [[~@custom-slots] ~getter-call]
+		       (dosync
+			~@auto-element-sets
+			~@custom-element-sets)
+		       ~instance))
 		   (defn ~maker-name [api-info# struct#]
 		     (~taker-name (~constructor-name api-info# (:id struct#)) struct#)))))
 	     struct-names)
@@ -82,10 +107,6 @@
 		`(defmethod ~slot-name ~type-keyword [instance#]
 		   (deref (~slot-keyword instance#))))))
 	  source-slot-names)
-     (map (fn [fetcher-name]
-	    `(def ~fetcher-name))
-	  (filter #(not (contains? (ns-interns *ns*) %))
-		  (map make-slot-fetcher-name custom-fetchers)))
      (map (fn [slot-name]
 	    (let [slot-keyword (keyword (name slot-name))
 		  slot-fetcher-name (make-slot-fetcher-name slot-name)]
@@ -105,7 +126,7 @@
   :fetcher [flickr-person people-get-info]
   :custom-fetchers [photos photosets groups contacts favorites])
 
-;;MISSING: owner, notes, tags, sets, groups, num-views, num-favs
+;;MISSING: notes, tags, sets, groups, num-views, num-favs
 (defapiclass photo
   :sources {flickr-full-photo
 	    (secret server isfavorite license rotation
@@ -114,7 +135,8 @@
 		    posted taken takengranularity lastupdate
 		    permcomment permaddmeta
 		    cancomment canaddmeta
-		    urls)
+		    urls
+		    :custom (owner) get-photo-owner-from-flickr-full-photo)
 	    flickr-search-photo
 	    (secret server title
 		    ispublic isfriend isfamily)
@@ -152,7 +174,7 @@
   :sources {flickr-comment
 	    (date-create permalink text)})
 
-;;; photo fetchers
+;;; user fetchers
 
 (def-multi-page-fetcher [user]
   photos make-photo-from-flickr-search-photo
@@ -194,5 +216,8 @@
 (defn fetch-photo-comments [photo]
   (map #(make-comment-from-flickr-comment (:api-info photo) %)
        (photos-comments-get-list (:api-info photo) (id photo))))
+
+(defn get-photo-owner-from-flickr-full-photo [photo flickr-full-photo]
+  [(make-user (:api-info photo) (:owner flickr-full-photo))])
 
 ;;MISSING: contact-info
