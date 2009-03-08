@@ -59,12 +59,13 @@
 	 instance)))))
 
 (defmacro- defapiclass [class-name & keyvals]
-  (let [{sources :sources [fetch-struct fetch-func] :fetcher custom-fetchers :custom-fetchers} (apply hash-map keyvals)
+  (let [{sources :sources [fetch-struct fetch-func] :fetcher
+	 custom-fetchers :custom-fetchers extra-slots :extra-slots} (apply hash-map keyvals)
 	make-taker-name (fn [struct-name]
 			  (symbol (str class-name "-take-values-from-" struct-name)))
 	make-slot-fetcher-name (fn [slot-name] (symbol (str "fetch-" class-name "-" slot-name)))
 	source-slot-names (apply concat (map source-slots (vals sources)))
-	slot-names (concat custom-fetchers source-slot-names)
+	slot-names (concat custom-fetchers source-slot-names extra-slots)
 	struct-names (keys sources)
 	constructor-name (symbol (str "make-" class-name))
 	fetcher-name (symbol (str "fetch-" class-name))
@@ -151,7 +152,7 @@
   :fetcher [flickr-person people-get-info]
   :custom-fetchers [photos photosets groups contacts favorites])
 
-;;MISSING: sets, groups, num-views, num-favs
+;;MISSING: num-views, num-favs
 (defapiclass photo
   :sources {flickr-full-photo
 	    (secret server isfavorite license rotation
@@ -173,7 +174,8 @@
 		    ispublic isfriend isfamily
 		    :custom (owner) get-owner)}
   :fetcher [flickr-full-photo photos-get-info]
-  :custom-fetchers [sizes comments])
+  :custom-fetchers [sizes comments sets groups]
+  :extra-slots [contexts])
 
 (defapiclass photoset
   :sources {flickr-photoset
@@ -267,6 +269,21 @@
 (defn- fetch-photo-comments [photo]
   (map #(make-comment-from-flickr-comment (:api-info photo) %)
        (photos-comments-get-list (:api-info photo) (id photo))))
+
+(defn- photo-contexts [photo]
+  (fetch-if-necessary (:contexts photo) (photos-get-all-contexts (:api-info photo) (id photo))))
+
+(defn- fetch-photo-sets [photo]
+  (let [api-info (:api-info photo)
+	contexts (photo-contexts photo)]
+    (map #(make-photoset-from-flickr-context-set api-info %)
+	 (filter #(= (:type %) :set) contexts))))
+
+(defn- fetch-photo-groups [photo]
+  (let [api-info (:api-info photo)
+	contexts (photo-contexts photo)]
+    (map #(make-group-from-flickr-context-pool api-info %)
+	 (filter #(= (:type %) :pool) contexts))))
 
 ;;MISSING: contact-info
 
