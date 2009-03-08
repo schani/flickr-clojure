@@ -30,7 +30,7 @@
 
 (defn deconstruct-source [src]
   (let [count (count src)]
-    (if (= (nth src (- count 3)) :custom)
+    (if (and (>= count 3) (= (nth src (- count 3)) :custom))
       [(take (- count 3) src) (nth src (- count 2)) (nth src (- count 1))]
       [src nil nil])))
 
