@@ -151,7 +151,7 @@
   :fetcher [flickr-person people-get-info]
   :custom-fetchers [photos photosets groups contacts favorites])
 
-;;MISSING: notes, tags, sets, groups, num-views, num-favs
+;;MISSING: sets, groups, num-views, num-favs
 (defapiclass photo
   :sources {flickr-full-photo
 	    (secret server isfavorite license rotation
@@ -161,24 +161,26 @@
 		    permcomment permaddmeta
 		    cancomment canaddmeta
 		    urls
-		    :custom (owner) get-photo-owner-from-flickr-full-photo)
+		    :custom (owner notes tags) get-photo-owner-notes-tags-from-flickr-full-photo)
 	    flickr-search-photo
 	    (secret server title
-		    ispublic isfriend isfamily)
+		    ispublic isfriend isfamily
+		    :custom (owner) get-owner)
 	    flickr-photoset-photo
 	    (secret server title)
 	    flickr-favorite
 	    (secret server title
-		    ispublic isfriend isfamily)}
+		    ispublic isfriend isfamily
+		    :custom (owner) get-owner)}
   :fetcher [flickr-full-photo photos-get-info]
   :custom-fetchers [sizes comments])
 
-;;MISSING: owner
 (defapiclass photoset
   :sources {flickr-photoset
 	    (primary secret server title description)
 	    flickr-photoset-info
-	    (primary title description)
+	    (primary title description
+		     :custom (owner) get-owner)
 	    flickr-context-set
 	    (title)}
   :fetcher [flickr-photoset-info photosets-get-info]
@@ -194,10 +196,28 @@
   :fetcher [flickr-group groups-get-info]
   :custom-fetchers [photos])
 
-;;MISSING: author
 (defapiclass comment
   :sources {flickr-comment
-	    (date-create permalink text)})
+	    (date-create permalink text
+			 :custom (author) get-author)})
+
+(defapiclass note
+  :sources {flickr-note
+	    (x y w h text
+	       :custom (author) get-author)})
+
+(defapiclass tag
+  :sources {flickr-tag
+	    (raw text
+		 :custom (author) get-author)})
+
+;;; generic getters
+
+(defn- get-owner [instance struct]
+  [(make-user (:api-info instance) (:owner struct))])
+
+(defn- get-author [instance struct]
+  [(make-user (:api-info instance) (:author struct))])
 
 ;;; user fetchers
 
@@ -221,11 +241,17 @@
   favorites make-photo-from-flickr-favorite
   (favorites-get-public-list api-info (id user) per-page page))
 
-;;; photoset fetchers
+;;; photoset fetchers and getters
 
 (defn- fetch-photoset-photos [photoset]
   (map #(make-photo-from-flickr-photoset-photo (:api-info photoset) %)
        (photosets-get-photos (:api-info photoset) (id photoset))))
+
+(defn- get-photo-owner-notes-tags-from-flickr-full-photo [instance struct]
+  (let [api-info (:api-info instance)]
+    [(make-user api-info (:owner struct))
+     (map #(make-note-from-flickr-note api-info %) (:notes struct))
+     (map #(make-tag-from-flickr-tag api-info %) (:tags struct))]))
 
 ;;; group fetchers
 
@@ -241,9 +267,6 @@
 (defn- fetch-photo-comments [photo]
   (map #(make-comment-from-flickr-comment (:api-info photo) %)
        (photos-comments-get-list (:api-info photo) (id photo))))
-
-(defn- get-photo-owner-from-flickr-full-photo [photo flickr-full-photo]
-  [(make-user (:api-info photo) (:owner flickr-full-photo))])
 
 ;;MISSING: contact-info
 
