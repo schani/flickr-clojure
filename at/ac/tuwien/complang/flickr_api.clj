@@ -1,11 +1,13 @@
-(import '(org.apache.xmlrpc.client XmlRpcClient XmlRpcClientConfigImpl))
-(import '(java.security MessageDigest))
-(import '(java.io ByteArrayInputStream))
-(use 'clojure.xml)
-(use 'clojure.contrib.seq-utils)
-(use 'clojure.contrib.fcase)
+(ns at.ac.tuwien.complang.flickr-api
+  (:import [org.apache.xmlrpc.client XmlRpcClient XmlRpcClientConfigImpl]
+	   [java.security MessageDigest]
+	   [java.io ByteArrayInputStream])
+  (:use clojure.xml
+	clojure.contrib.seq-utils
+	clojure.contrib.fcase
+	clojure.contrib.def))
 
-(def xml-rpc-client
+(defvar- xml-rpc-client
      (let [config (XmlRpcClientConfigImpl.)
 	   client (XmlRpcClient.)
 	   url (java.net.URL. "http://www.flickr.com/services/xmlrpc/")]
@@ -13,7 +15,7 @@
        (. client setConfig config)
        client))
 
-(defn md5-sum [string]
+(defn- md5-sum [string]
   (let [digest (. MessageDigest getInstance "MD5")]
     (. digest update (. string getBytes))
     (let [byte-arr (. digest digest)
@@ -22,22 +24,22 @@
 	  leading-zeros (apply str (replicate (- 32 (count bigint-str)) \0))]
       (str leading-zeros bigint-str))))
 
-(defn xml-tag [xml]
+(defn- xml-tag [xml]
   (:tag xml))
 
-(defn xml-body [xml]
+(defn- xml-body [xml]
   (apply str (:content xml)))
 
-(defn xml-children [xml]
+(defn- xml-children [xml]
   (:content xml))
 
-(defn xml-child [tag xml]
+(defn- xml-child [tag xml]
   (first (filter #(= (:tag %) tag) (xml-children xml))))
 
-(defn xml-attrib [attrib xml]
+(defn- xml-attrib [attrib xml]
   (attrib (:attrs xml)))
 
-(defn xml-follow-path [xml path]
+(defn- xml-follow-path [xml path]
   (cond (keyword? path) (xml-attrib path xml)
 	(empty? path) xml
 	true
@@ -47,7 +49,7 @@
 		 (= f :child) (xml-follow-path (xml-child (second path) xml) (rest (rest path)))
 		 true (throw (Exception. (str "Illegal XML Path " path)))))))
 
-(defn convert-type [value type]
+(defn- convert-type [value type]
   (cond (string? value) (case type
 			  :string value
 			  :integer (BigInteger. value)
@@ -56,7 +58,7 @@
 	(nil? value) :unknown
 	true (throw (Exception. (str "Value to be converted (" value ") must be string or nil")))))
 
-(defmacro defapistruct [name & members]
+(defmacro- defapistruct [name & members]
   (let [parser-name (symbol (str "make-" name))
 	xml-arg (gensym)
 	member-inits (mapcat (fn [member]
@@ -67,7 +69,7 @@
 				   `(~member-keyword (~path ~xml-arg))
 				   `(~member-keyword (convert-type (xml-follow-path ~xml-arg '~path) ~type)))))
 			     members)]
-    `(defn ~parser-name [~xml-arg]
+    `(defn- ~parser-name [~xml-arg]
        (sorted-map ~@member-inits))))
 
 (defapistruct flickr-comment
@@ -234,19 +236,19 @@
   (urls (fn [xml]
 	    (map make-flickr-url (xml-children (xml-child :urls xml))))))
 
-(defn parse-xml-from-string [string]
+(defn- parse-xml-from-string [string]
   (let [stream (ByteArrayInputStream. (. string getBytes))]
     (parse stream)))
 
-(defn arguments-signature-source [api-info args method]
+(defn- arguments-signature-source [api-info args method]
   (let [keys (sort (keys args))
 	args-string (reduce str (map (fn [k] (str k (get args k))) keys))]
     (str (:shared-secret api-info) args-string)))
 
-(defn arguments-signature [api-info args method]
+(defn- arguments-signature [api-info args method]
   (md5-sum (arguments-signature-source api-info args method)))
 
-(defn full-call-args [api-info method args]
+(defn- full-call-args [api-info method args]
   (let [full-args (reduce into (list {"api_key" (:api-key api-info)}
 				     (if-let [auth-token (:token api-info)]
 				       {"auth_token" auth-token}
@@ -254,23 +256,23 @@
 				     args))]
     (assoc full-args "api_sig" (arguments-signature api-info full-args method))))
 
-(def *print-calls* false)
+(defvar *print-calls* false)
 
-(defn make-flickr-call [api-info method string-modifier args]
+(defn- make-flickr-call [api-info method string-modifier args]
   (when *print-calls*
     (printf "making call to %s with args %s\n" method (str args)))
   (let [full-args (full-call-args api-info method args)
 	result (. xml-rpc-client execute method [full-args])]
     (parse-xml-from-string (string-modifier result))))
 
-(defn lispify-method-name [string]
+(defn- lispify-method-name [string]
   (apply str (mapcat (fn [c]
 		       (cond (= c \.) "-"
 			     (. Character isUpperCase c) (list \- (. Character toLowerCase c))
 			     true (list c)))
 		     string)))
 
-(defmacro defcall [name-string args & body]
+(defmacro- defcall [name-string args & body]
   (let [full-method-name-string (str "flickr." name-string)
 	fun-name (symbol (lispify-method-name name-string))
 	api-info 'api-info
@@ -287,7 +289,7 @@
 
 ;; returns a list of the items, the total number of pages, and the
 ;; total number of items.
-(defn multi-page-call [call-fun make-fun per-page page & args]
+(defn- multi-page-call [call-fun make-fun per-page page & args]
   (let [result (apply call-fun "per_page" (str per-page) "page" (str page) args)]
     {:items (map make-fun (xml-children result))
      :pages (convert-type (xml-attrib :pages result) :integer)

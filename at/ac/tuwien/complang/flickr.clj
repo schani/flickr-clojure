@@ -1,9 +1,13 @@
+(ns at.ac.tuwien.complang.flickr
+  (:use clojure.contrib.def
+	at.ac.tuwien.complang.flickr-api))
+
 (def id :id)
 
-(defn capitalize-string [s]
+(defn- capitalize-string [s]
   (str (. Character toUpperCase (nth s 0)) (subs s 1)))
 
-(defmacro fetch-if-necessary [ref fetch]
+(defmacro- fetch-if-necessary [ref fetch]
   `(let [ref-name# ~ref]
      (if-let [value# (deref ref-name#)]
        value#
@@ -15,30 +19,30 @@
 	      (ref-set ref-name# new-value#)
 	      new-value#)))))))
 
-(defmacro def-multi-page-fetcher [entity what converter fetch-page]
+(defmacro- def-multi-page-fetcher [entity what converter fetch-page]
   (let [[entity] entity
 	fetcher-name (symbol (str "fetch-" entity "-" what))
 	api-info 'api-info
 	per-page 'per-page
 	page 'page]
-    `(defn ~fetcher-name [~entity]
+    `(defn- ~fetcher-name [~entity]
        (let [~api-info (:api-info ~entity)
 	     api-seq# (collect-pages (fn [~per-page ~page]
 				       ~fetch-page)
 				     50 1)]
 	 (map (fn [x#] (~converter ~api-info x#)) api-seq#)))))
 
-(defn deconstruct-source [src]
+(defn- deconstruct-source [src]
   (let [count (count src)]
     (if (and (>= count 3) (= (nth src (- count 3)) :custom))
       [(take (- count 3) src) (nth src (- count 2)) (nth src (- count 1))]
       [src nil nil])))
 
-(defn source-slots [src]
+(defn- source-slots [src]
   (let [[auto-slots custom-slots getter] (deconstruct-source src)]
     (concat auto-slots custom-slots)))
 
-(defmacro defapiclass [class-name & keyvals]
+(defmacro- defapiclass [class-name & keyvals]
   (let [{sources :sources [fetch-struct fetch-func] :fetcher custom-fetchers :custom-fetchers} (apply hash-map keyvals)
 	make-taker-name (fn [struct-name]
 			  (symbol (str class-name "-take-values-from-" struct-name)))
@@ -58,7 +62,7 @@
 	    `(defmulti ~slot-name :entity-type))
 	  (filter #(not (contains? (ns-interns *ns*) %)) slot-names))
      (map (fn [fetcher-name]
-	    `(def ~fetcher-name))
+	    `(defvar- ~fetcher-name))
 	  (filter #(and (not (nil? %)) (not (contains? (ns-interns *ns*) %)))
 		  (concat (map make-slot-fetcher-name custom-fetchers)
 			  (map #(nth (deconstruct-source %) 2) (vals sources)))))
@@ -81,17 +85,17 @@
 		     custom-element-sets (map (fn [var kw]
 						`(ref-set (~kw ~instance) ~var))
 					      custom-slots custom-elements)]
-		 `((defn ~taker-name [~instance ~struct]
+		 `((defn- ~taker-name [~instance ~struct]
 		     (let [[~@custom-slots] ~getter-call]
 		       (dosync
 			~@auto-element-sets
 			~@custom-element-sets)
 		       ~instance))
-		   (defn ~maker-name [api-info# struct#]
+		   (defn- ~maker-name [api-info# struct#]
 		     (~taker-name (~constructor-name api-info# (:id struct#)) struct#)))))
 	     struct-names)
      (when fetch-struct
-       `((defn ~fetcher-name [instance#]
+       `((defn- ~fetcher-name [instance#]
 	   (let [struct# (~fetch-func (:api-info instance#) (:id instance#))]
 	     (~(make-taker-name fetch-struct) instance# struct#)
 	     instance#))))
@@ -180,11 +184,11 @@
   photos make-photo-from-flickr-search-photo
   (photos-search api-info per-page page :user-id (id user)))
 
-(defn fetch-user-photosets [user]
+(defn- fetch-user-photosets [user]
   (map #(make-photoset-from-flickr-photoset (:api-info user) %)
        (photosets-get-list (:api-info user) (id user))))
 
-(defn fetch-user-groups [user]
+(defn- fetch-user-groups [user]
   (map #(make-group-from-flickr-list-group (:api-info user) %)
        (people-get-public-groups (:api-info user) (id user))))
 
@@ -198,7 +202,7 @@
 
 ;;; photoset fetchers
 
-(defn fetch-photoset-photos [photoset]
+(defn- fetch-photoset-photos [photoset]
   (map #(make-photo-from-flickr-photoset-photo (:api-info photoset) %)
        (photosets-get-photos (:api-info photoset) (id photoset))))
 
@@ -210,14 +214,14 @@
 
 ;;; photo fetchers
 
-(defn fetch-photo-sizes [photo]
+(defn- fetch-photo-sizes [photo]
   (photos-get-sizes (:api-info photo) (id photo)))
 
-(defn fetch-photo-comments [photo]
+(defn- fetch-photo-comments [photo]
   (map #(make-comment-from-flickr-comment (:api-info photo) %)
        (photos-comments-get-list (:api-info photo) (id photo))))
 
-(defn get-photo-owner-from-flickr-full-photo [photo flickr-full-photo]
+(defn- get-photo-owner-from-flickr-full-photo [photo flickr-full-photo]
   [(make-user (:api-info photo) (:owner flickr-full-photo))])
 
 ;;MISSING: contact-info
