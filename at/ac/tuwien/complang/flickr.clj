@@ -42,6 +42,22 @@
   (let [[auto-slots custom-slots getter] (deconstruct-source src)]
     (concat auto-slots custom-slots)))
 
+(defn- lookup-or-create-instance [api-info type id creator]
+  (dosync
+   (let [creator (fn [] (merge {:entity-type type :api-info api-info :id id} (creator)))
+	 instance-maps (deref (:instance-maps api-info))]
+     (if-let [instance-map (instance-maps type)]
+       (or (instance-map id)
+	   (let [instance (creator)]
+	     (ref-set (:instance-maps api-info)
+		      (assoc instance-maps type
+			     (assoc instance-map id instance)))
+	     instance))
+       (let [instance (creator)]
+	 (ref-set (:instance-maps api-info)
+		  (assoc instance-maps type {id instance}))
+	 instance)))))
+
 (defmacro- defapiclass [class-name & keyvals]
   (let [{sources :sources [fetch-struct fetch-func] :fetcher custom-fetchers :custom-fetchers} (apply hash-map keyvals)
 	make-taker-name (fn [struct-name]
@@ -67,7 +83,7 @@
 		  (concat (map make-slot-fetcher-name custom-fetchers)
 			  (map #(nth (deconstruct-source %) 2) (vals sources)))))
      `((defn ~constructor-name [api-info# id#]
-	 (merge {:entity-type ~type-keyword :api-info api-info# :id id#} (hash-map ~@slot-constructors))))
+	 (lookup-or-create-instance api-info# ~type-keyword id# (fn [] (hash-map ~@slot-constructors)))))
      (mapcat (fn [struct-name]
 	       (let [taker-name (make-taker-name struct-name)
 		     maker-name (symbol (str "make-" class-name "-from-" struct-name))
@@ -225,3 +241,12 @@
   [(make-user (:api-info photo) (:owner flickr-full-photo))])
 
 ;;MISSING: contact-info
+
+(ns-unmap *ns* 'request-authorization)
+(def request-authorization at.ac.tuwien.complang.flickr-api/request-authorization)
+
+(ns-unmap *ns* 'complete-authorization)
+(defn complete-authorization [api-info]
+  (let [api-info (at.ac.tuwien.complang.flickr-api/complete-authorization api-info)
+	api-info (into api-info {:instance-maps (ref (hash-map))})]
+    (make-user api-info (:nsid (:user api-info)))))
