@@ -29,7 +29,7 @@
        (let [~api-info (:api-info ~entity)
 	     api-seq# (collect-pages (fn [~per-page ~page]
 				       ~fetch-page)
-				     50 1)]
+				     500 1)]
 	 (map (fn [x#] (~converter ~api-info x#)) api-seq#)))))
 
 (defn- deconstruct-source [src]
