@@ -52,8 +52,8 @@
 (defn- convert-type [value type]
   (cond (string? value) (case type
 			  :string value
-			  :integer (BigInteger. value)
-			  :boolean (not (zero? (BigInteger. value)))
+			  :integer (if (empty? value) :unknown (BigInteger. value))
+			  :boolean (if (empty? value) :unknown (not (zero? (BigInteger. value))))
 			  (throw (Exception. (str "Illegal type " type))))
 	(nil? value) :unknown
 	true (throw (Exception. (str "Value to be converted (" value ") must be string or nil")))))
