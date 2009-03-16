@@ -26,6 +26,9 @@
 	clojure.contrib.fcase
 	clojure.contrib.def))
 
+(defmulti persistence-get (fn [p key] (type p)))
+(defmulti persistence-put (fn [p key val] (type p)))
+
 (defvar- xml-rpc-client
      (let [config (XmlRpcClientConfigImpl.)
 	   client (XmlRpcClient.)
@@ -259,13 +262,15 @@
   (let [stream (ByteArrayInputStream. (. string getBytes))]
     (parse stream)))
 
-(defn- arguments-signature-source [api-info args method]
-  (let [keys (sort (keys args))
-	args-string (reduce str (map (fn [k] (str k (get args k))) keys))]
-    (str (:shared-secret api-info) args-string)))
+(defn- call-args-string [args]
+  (let [keys (sort (keys args))]
+    (reduce str (map (fn [k] (str k (get args k))) keys))))
 
-(defn- arguments-signature [api-info args method]
-  (md5-sum (arguments-signature-source api-info args method)))
+(defn- arguments-signature-source [api-info args]
+  (str (:shared-secret api-info) (call-args-string args)))
+
+(defn- arguments-signature [api-info args]
+  (md5-sum (arguments-signature-source api-info args)))
 
 (defn- full-call-args [api-info method args]
   (let [full-args (reduce into (list {"api_key" (:api-key api-info)}
@@ -273,17 +278,31 @@
 				       {"auth_token" auth-token}
 				       {})
 				     args))]
-    (assoc full-args "api_sig" (arguments-signature api-info full-args method))))
+    (assoc full-args "api_sig" (arguments-signature api-info full-args))))
+
+(defn- lookup-call [api-info method args]
+  (if-let [persistence (:persistence api-info)]
+    (persistence-get persistence (str method (call-args-string args)))
+    nil))
+
+(defn- memoize-call [api-info method args result]
+  (when-let [persistence (:persistence api-info)]
+    (persistence-put persistence (str method (call-args-string args)) result)))
 
 (defvar *print-calls* false)
 
-(defn- make-flickr-call [api-info method string-modifier args]
-  (when *print-calls*
-    (printf "making call to %s with args %s\n" method (str args))
-    (flush))
-  (let [full-args (full-call-args api-info method args)
-	result (. xml-rpc-client execute method [full-args])]
-    (parse-xml-from-string (string-modifier result))))
+(defn- make-flickr-call [api-info method persistent string-modifier args]
+  (if-let [result (and persistent (lookup-call api-info method args))]
+    (parse-xml-from-string (string-modifier result))
+    (do
+      (when *print-calls*
+	(printf "making call to %s with args %s\n" method (str args))
+	(flush))
+      (let [full-args (full-call-args api-info method args)
+	    result (. xml-rpc-client execute method [full-args])]
+	(when persistent
+	  (memoize-call api-info method args result))
+	(parse-xml-from-string (string-modifier result))))))
 
 (defn- lispify-method-name [string]
   (apply str (mapcat (fn [c]
@@ -292,19 +311,20 @@
 			     true (list c)))
 		     string)))
 
-(defmacro- defcall [name-string args & body]
+(defmacro- defcall [name-string args persistence & body]
   (let [full-method-name-string (str "flickr." name-string)
 	fun-name (symbol (lispify-method-name name-string))
+	persistent (= persistence :persistent)
 	api-info 'api-info
 	call 'call
 	call-with-string-modifier 'call-with-string-modifier]
     `(defn ~fun-name [~api-info ~@args]
        (let [~call
 	     (fn [& args#]
-	       (make-flickr-call ~api-info ~full-method-name-string identity (apply sorted-map args#)))
+	       (make-flickr-call ~api-info ~full-method-name-string ~persistent identity (apply sorted-map args#)))
 	     ~call-with-string-modifier
 	     (fn [modifier# & args#]
-	       (make-flickr-call ~api-info ~full-method-name-string modifier# (apply sorted-map args#)))]
+	       (make-flickr-call ~api-info ~full-method-name-string ~persistent modifier# (apply sorted-map args#)))]
 	 ~@body))))
 
 ;; returns a list of the items, the total number of pages, and the
@@ -315,11 +335,11 @@
      :pages (convert-type (xml-attrib :pages result) :integer)
      :total (convert-type (xml-attrib :total result) :integer)}))
 
-(defcall "auth.getFrob" []
+(defcall "auth.getFrob" [] :not-persistent
   (xml-body (call)))
 
 ;; returns the token, the permission string, and the user
-(defcall "auth.getToken" []
+(defcall "auth.getToken" [] :not-persistent
   (let [result (call "frob" (:frob api-info))]
     {:token (xml-body (xml-child :token result))
      :perms (xml-body (xml-child :perms result))
@@ -327,53 +347,53 @@
 	     {:nsid (xml-attrib :nsid child)
 	      :username (xml-attrib :username child)})}))
 
-(defcall "contacts.getList" [filter per-page page]
+(defcall "contacts.getList" [filter per-page page] :persistent
   (if (nil? filter)
     (multi-page-call call make-flickr-contact per-page page)
     (multi-page-call call make-flickr-contact per-page page "filter" filter)))
 
-(defcall "contacts.getPublicList" [nsid per-page page]
+(defcall "contacts.getPublicList" [nsid per-page page] :persistent
   (multi-page-call call make-flickr-public-contact per-page page "user_id" nsid))
 
-(defcall "favorites.getList" [nsid per-page page]
+(defcall "favorites.getList" [nsid per-page page] :persistent
   (multi-page-call call make-flickr-favorite per-page page "user_id" nsid))
 
-(defcall "favorites.getPublicList" [nsid per-page page]
+(defcall "favorites.getPublicList" [nsid per-page page] :persistent
   (multi-page-call call make-flickr-favorite per-page page "user_id" nsid))
 
-(defcall "groups.getInfo" [group-id]
+(defcall "groups.getInfo" [group-id] :persistent
   (make-flickr-group (call "group_id" group-id)))
 
-(defcall "groups.pools.add" [photo-id group-id]
+(defcall "groups.pools.add" [photo-id group-id] :not-persistent
   (call "photo_id" photo-id "group_id" group-id))
 
-(defcall "groups.pools.getPhotos" [group-id per-page page tags]
+(defcall "groups.pools.getPhotos" [group-id per-page page tags] :persistent
   (if (nil? tags)
     (multi-page-call call make-flickr-search-photo per-page page "group_id" group-id)
     (multi-page-call call make-flickr-search-photo per-page page "group_id" group-id "tags" tags)))
 
-(defcall "groups.pools.remove" [photo-id group-id]
+(defcall "groups.pools.remove" [photo-id group-id] :not-persistent
   (call "group_id" group-id "photo_id" photo-id))
 
-(defcall "people.findByUsername" [name]
+(defcall "people.findByUsername" [name] :persistent
   (make-flickr-user (call "username" name)))
 
-(defcall "people.getInfo" [nsid]
+(defcall "people.getInfo" [nsid] :persistent
   (make-flickr-person (call "user_id" nsid)))
 
-(defcall "people.getPublicGroups" [nsid]
+(defcall "people.getPublicGroups" [nsid] :persistent
   (let [result (call "user_id" nsid)]
     (map make-flickr-list-group (xml-children result))))
 
-(defcall "photos.addTags" [photo-id tags]
+(defcall "photos.addTags" [photo-id tags] :not-persistent
   (let [tags-string (apply str (interpose " " (map #(str \" % \") tags)))]
     (call "photo_id" photo-id "tags" tags-string)))
 
-(defcall "photos.comments.getList" [photo-id]
+(defcall "photos.comments.getList" [photo-id] :persistent
   (let [result (call "photo_id" photo-id)]
     (map make-flickr-comment (xml-children result))))
 
-(defcall "photos.getAllContexts" [photo-id]
+(defcall "photos.getAllContexts" [photo-id] :persistent
   (let [result (call-with-string-modifier #(str "<list>" % "</list>") "photo_id" photo-id)]
     (map (fn [item]
 	   (case (xml-tag item)
@@ -382,19 +402,19 @@
 	     (throw (Exception. (str "invalid context tag " (xml-tag item))))))
 	 (xml-children result))))
 
-(defcall "photos.getInfo" [photo-id & secret]
+(defcall "photos.getInfo" [photo-id & secret] :persistent
   (make-flickr-full-photo
    (if (empty? secret)
      (call "photo_id" photo-id)
      (call "photo_id" photo-id "secret" (first secret)))))
 
-(defcall "photos.getSizes" [photo-id]
+(defcall "photos.getSizes" [photo-id] :persistent
   (map make-flickr-size (xml-children (call "photo_id" photo-id))))
 
-(defcall "photos.removeTag" [tag-id]
+(defcall "photos.removeTag" [tag-id] :not-persistent
   (call "tag_id" tag-id))
 
-(defcall "photos.search" [per-page page & keyvals]
+(defcall "photos.search" [per-page page & keyvals] :persistent
   (let [keyvals-map (apply hash-map keyvals)
 	optional-args (mapcat #(if-let [value ((key %) keyvals-map)]
 				 (list (val %) value)
@@ -405,34 +425,34 @@
 			       :licence "licence" :sort "sort"})]
     (apply multi-page-call call make-flickr-search-photo per-page page optional-args)))
 
-(defcall "photosets.getInfo" [photoset-id]
+(defcall "photosets.getInfo" [photoset-id] :persistent
   (make-flickr-photoset-info (call "photoset_id" photoset-id)))
 
-(defcall "photosets.getList" [user-id]
+(defcall "photosets.getList" [user-id] :persistent
   (let [result (call "user_id" user-id)]
     (map make-flickr-photoset (xml-children result))))
 
-(defcall "photosets.getPhotos" [photoset-id]
+(defcall "photosets.getPhotos" [photoset-id] :persistent
   (let [result (call "photoset_id" photoset-id)]
     (map make-flickr-photoset-photo (xml-children result))))
 
-(defcall "test.echo" []
+(defcall "test.echo" [] :not-persistent
   (call-with-string-modifier #(str "<list>" % "</list>")))
 
-(defcall "test.login" []
+(defcall "test.login" [] :not-persistent
   (call))
 
-(defn request-authorization [api-key shared-secret]
+(defn api-request-authorization [api-key shared-secret]
   (let [api-info {:api-key api-key :shared-secret shared-secret}
 	frob (auth-get-frob api-info)
 	api-info (assoc api-info :frob frob)
 	perms "write"
-	api-sig (arguments-signature api-info {"api_key" api-key "perms" perms "frob" frob} nil)
+	api-sig (arguments-signature api-info {"api_key" api-key "perms" perms "frob" frob})
 	url (format "http://flickr.com/services/auth/?api_key=%s&perms=%s&frob=%s&api_sig=%s" api-key perms frob api-sig)]
     {:api-info api-info :url url}))
 
-(defn complete-authorization [api-info]
-  (into api-info (auth-get-token api-info)))
+(defn api-complete-authorization [api-info persistence]
+  (merge api-info (auth-get-token api-info) {:persistence persistence}))
 
 (defn collect-pages [fetcher per-page first]
   (lazy-seq

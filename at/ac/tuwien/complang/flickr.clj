@@ -306,11 +306,9 @@
 
 ;;MISSING: contact-info
 
-(ns-unmap *ns* 'request-authorization)
-(def request-authorization at.ac.tuwien.complang.flickr-api/request-authorization)
+(def request-authorization api-request-authorization)
 
-(ns-unmap *ns* 'complete-authorization)
-(defn complete-authorization [api-info]
-  (let [api-info (at.ac.tuwien.complang.flickr-api/complete-authorization api-info)
+(defn complete-authorization [api-info persistence]
+  (let [api-info (api-complete-authorization api-info persistence)
 	api-info (into api-info {:instance-maps (ref (hash-map))})]
     (make-user api-info (:nsid (:user api-info)))))
