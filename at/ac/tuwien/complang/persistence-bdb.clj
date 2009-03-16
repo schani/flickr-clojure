@@ -1,4 +1,4 @@
-;;; persistence.clj
+;;; persistence-bdb.clj
 
 ;; flickr-clojure --- Flickr API bindings for Clojure
 
@@ -62,9 +62,9 @@
   (let [{db :db} p]
     (database-put db key value)))
 
-(defn open-persistence [dir name]
+(defn open-persistence-bdb [dir name]
   (with-meta {:db (open-database dir name)} {:type ::Database}))
 
-(defn close-persistence [p]
+(defn close-persistence-bdb [p]
   (let [{db :db} p]
     (close-database db)))
