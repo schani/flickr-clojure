@@ -19,9 +19,9 @@
 
 (ns at.ac.tuwien.complang.flickr-api
   (:import [org.apache.xmlrpc.client XmlRpcClient XmlRpcClientConfigImpl]
-	   [java.security MessageDigest]
 	   [java.io ByteArrayInputStream])
-  (:use clojure.xml
+  (:use at.ac.tuwien.complang.utils
+	clojure.xml
 	clojure.contrib.seq-utils
 	clojure.contrib.fcase
 	clojure.contrib.def))
@@ -36,15 +36,6 @@
        (. config setServerURL url)
        (. client setConfig config)
        client))
-
-(defn- md5-sum [string]
-  (let [digest (. MessageDigest getInstance "MD5")]
-    (. digest update (. string getBytes))
-    (let [byte-arr (. digest digest)
-	  bigint (BigInteger. 1 byte-arr)
-	  bigint-str (. bigint toString 16)
-	  leading-zeros (apply str (replicate (- 32 (count bigint-str)) \0))]
-      (str leading-zeros bigint-str))))
 
 (defn- xml-tag [xml]
   (:tag xml))

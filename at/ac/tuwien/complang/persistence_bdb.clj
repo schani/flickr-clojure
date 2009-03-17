@@ -1,4 +1,4 @@
-;;; persistence-bdb.clj
+;;; persistence_bdb.clj
 
 ;; flickr-clojure --- Flickr API bindings for Clojure
 
@@ -17,7 +17,7 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-(ns at.ac.tuwien.complang.persistence
+(ns at.ac.tuwien.complang.persistence-bdb
   (:use at.ac.tuwien.complang.flickr-api))
 
 (defn- open-database [dir name]
