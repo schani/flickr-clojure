@@ -22,7 +22,7 @@
 
 (defn photos-favorited-by-n-users [users n]
   "Returns a sequence of the photos favorited by at least n users."
-  (let [freqs (frequencies (mapcat favorites users))]
+  (let [freqs (frequencies (reduce concat (pmap favorites users)))]
     (keys (filter #(>= (val %) n) freqs))))
 
 (defn photos-favorited-by-n-contacts [user n]
