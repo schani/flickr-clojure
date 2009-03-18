@@ -62,20 +62,22 @@
     (concat auto-slots custom-slots)))
 
 (defn- lookup-or-create-instance [api-info type id creator]
-  (dosync
-   (let [creator (fn [] (with-meta (merge {:api-info api-info :id id} (creator)) {:type type}))
-	 instance-maps (deref (:instance-maps api-info))]
-     (if-let [instance-map (instance-maps type)]
-       (or (instance-map id)
+  (let [creator (fn [] (with-meta (creator) {:type type}))]
+    (if (:instance-maps api-info)
+      (dosync
+       (let [instance-maps (deref (:instance-maps api-info))]
+	 (if-let [instance-map (instance-maps type)]
+	   (or (instance-map id)
+	       (let [instance (creator)]
+		 (ref-set (:instance-maps api-info)
+			  (assoc instance-maps type
+				 (assoc instance-map id instance)))
+		 instance))
 	   (let [instance (creator)]
 	     (ref-set (:instance-maps api-info)
-		      (assoc instance-maps type
-			     (assoc instance-map id instance)))
-	     instance))
-       (let [instance (creator)]
-	 (ref-set (:instance-maps api-info)
-		  (assoc instance-maps type {id instance}))
-	 instance)))))
+		      (assoc instance-maps type {id instance}))
+	     instance))))
+      (creator))))
 
 (defmacro- defapiclass [class-name & keyvals]
   (let [{sources :sources [fetch-struct fetch-func] :fetcher
@@ -310,7 +312,9 @@
 
 (def request-authorization api-request-authorization)
 
-(defn complete-authorization [api-info persistence]
+(defn complete-authorization [api-info persistence do-cache]
   (let [api-info (api-complete-authorization api-info persistence)
-	api-info (into api-info {:instance-maps (ref (hash-map))})]
+	api-info (if do-cache
+		   (into api-info {:instance-maps (ref (hash-map))})
+		   api-info)]
     (make-user api-info (:nsid (:user api-info)))))
