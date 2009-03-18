@@ -83,15 +83,15 @@
 	make-taker-name (fn [struct-name]
 			  (symbol (str class-name "-take-values-from-" struct-name)))
 	make-slot-fetcher-name (fn [slot-name] (symbol (str "fetch-" class-name "-" slot-name)))
-	source-slot-names (apply concat (map source-slots (vals sources)))
+	source-slot-names (distinct (mapcat source-slots (vals sources)))
 	slot-names (concat custom-fetchers source-slot-names extra-slots)
+	slot-keywords (map #(keyword (name %)) slot-names)
 	struct-names (keys sources)
 	constructor-name (symbol (str "make-" class-name))
 	fetcher-name (symbol (str "fetch-" class-name))
+	defstruct-name (symbol (str class-name "-struct"))
 	type-keyword (keyword (str (ns-name *ns*)) (capitalize-string (str class-name)))
-	slot-constructors (mapcat (fn [element-name]
-				    (list (keyword (name element-name)) '(ref nil)))
-				  slot-names)
+	slot-constructors (mapcat #(list % '(ref nil)) slot-keywords)
 	print-prefix (str "#<" (capitalize-string (str class-name)) ": ")]
     (concat
      '(do)
@@ -103,8 +103,10 @@
 	  (filter #(and (not (nil? %)) (not (contains? (ns-interns *ns*) %)))
 		  (concat (map make-slot-fetcher-name custom-fetchers)
 			  (map #(nth (deconstruct-source %) 2) (vals sources)))))
-     `((defn ~constructor-name [api-info# id#]
-	 (lookup-or-create-instance api-info# ~type-keyword id# (fn [] (hash-map ~@slot-constructors))))
+     `((defstruct ~defstruct-name ~@slot-keywords)
+       (defn ~constructor-name [api-info# id#]
+	 (lookup-or-create-instance api-info# ~type-keyword id#
+				    (fn [] (struct-map ~defstruct-name :api-info api-info# :id id# ~@slot-constructors))))
        (defmethod print-method ~type-keyword [instance# w#]
 	 (. w# write ~print-prefix)
 	 (. w# write (id instance#))
