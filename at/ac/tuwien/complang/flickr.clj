@@ -21,22 +21,26 @@
   (:use clojure.contrib.def
 	at.ac.tuwien.complang.flickr-api))
 
-(def id :id)
+(defn id [instance]
+  (:id (deref instance)))
+
+(defn api-info [instance]
+  (:api-info (deref instance)))
 
 (defn- capitalize-string [s]
   (str (. Character toUpperCase (nth s 0)) (subs s 1)))
 
-(defmacro- fetch-if-necessary [ref fetch]
-  `(let [ref-name# ~ref]
-     (if-let [value# (deref ref-name#)]
-       value#
-       (let [new-value# ~fetch]
-	 (dosync
-	  (if-let [value# (deref ref-name#)]
-	    value#
-	    (do
-	      (ref-set ref-name# new-value#)
-	      new-value#)))))))
+(defn- fetch-if-necessary [instance slot fetcher]
+  (let [value (get (deref instance) slot)]
+    (if (= value :unfetched)
+      (let [fetched-value (fetcher instance)]
+	(dosync
+	 (if (= (get (deref instance) slot) :unfetched)
+	   (do
+	     (ref-set instance (assoc (deref instance) slot fetched-value))
+	     fetched-value)
+	   (get (deref instance) slot))))
+      value)))
 
 (defmacro- def-multi-page-fetcher [entity what converter fetch-page]
   (let [[entity] entity
@@ -45,7 +49,7 @@
 	per-page 'per-page
 	page 'page]
     `(defn- ~fetcher-name [~entity]
-       (let [~api-info (:api-info ~entity)
+       (let [~api-info (api-info ~entity)
 	     api-seq# (collect-pages (fn [~per-page ~page]
 				       ~fetch-page)
 				     500 1)]
@@ -62,7 +66,7 @@
     (concat auto-slots custom-slots)))
 
 (defn- lookup-or-create-instance [api-info type id creator]
-  (let [creator (fn [] (with-meta (creator) {:type type}))]
+  (let [creator (fn [] (ref (with-meta (creator) {:type type})))]
     (if (:instance-maps api-info)
       (dosync
        (let [instance-maps (deref (:instance-maps api-info))]
@@ -93,25 +97,25 @@
 	fetcher-name (symbol (str "fetch-" class-name))
 	defstruct-name (symbol (str class-name "-struct"))
 	type-keyword (keyword (str (ns-name *ns*)) (capitalize-string (str class-name)))
-	slot-constructors (mapcat #(list % '(ref nil)) slot-keywords)
+	slot-constructors (mapcat #(list % :unfetched) slot-keywords)
 	print-prefix (str "#<" (capitalize-string (str class-name)) ": ")]
     (concat
      '(do)
      (map (fn [slot-name]
-	    `(defmulti ~slot-name type))
+	    `(defmulti ~slot-name (fn [i#] (type (deref i#)))))
 	  (filter #(not (contains? (ns-interns *ns*) %)) slot-names))
      (map (fn [fetcher-name]
 	    `(defvar- ~fetcher-name))
 	  (filter #(and (not (nil? %)) (not (contains? (ns-interns *ns*) %)))
 		  (concat (map make-slot-fetcher-name custom-fetchers)
 			  (map #(nth (deconstruct-source %) 2) (vals sources)))))
-     `((defstruct ~defstruct-name ~@slot-keywords)
+     `((defstruct ~defstruct-name :api-info :id ~@slot-keywords)
        (defn ~constructor-name [api-info# id#]
 	 (lookup-or-create-instance api-info# ~type-keyword id#
 				    (fn [] (struct-map ~defstruct-name :api-info api-info# :id id# ~@slot-constructors))))
        (defmethod print-method ~type-keyword [instance# w#]
 	 (. w# write ~print-prefix)
-	 (. w# write (id instance#))
+	 (. w# write (:id instance#))
 	 (. w# write ">")))
      (mapcat (fn [struct-name]
 	       (let [taker-name (make-taker-name struct-name)
@@ -122,46 +126,49 @@
 		     getter-call (if getter
 				   `(~getter ~instance ~struct)
 				   'nil)
-		     auto-elements (map #(keyword (name %)) auto-slots)
-		     auto-element-sets (map (fn [kw]
-					      `(ref-set (~kw ~instance) (~kw ~struct)))
-					    auto-elements)
-		     custom-elements (map #(keyword (name %)) custom-slots)
-		     custom-element-sets (map (fn [var kw]
-						`(ref-set (~kw ~instance) ~var))
-					      custom-slots custom-elements)]
+		     auto-keyvals (mapcat (fn [slot]
+					    (let [kw (keyword (name slot))]
+					      `(~kw (~kw ~struct))))
+					  auto-slots)
+		     custom-keyvals (mapcat (fn [slot]
+					      (let [kw (keyword (name slot))]
+						`(~kw ~slot)))
+					    custom-slots)]
 		 `((defn- ~taker-name [~instance ~struct]
 		     (let [[~@custom-slots] ~getter-call]
 		       (dosync
-			~@auto-element-sets
-			~@custom-element-sets)
-		       ~instance))
+			(let [new-instance# (assoc (deref ~instance) ~@auto-keyvals ~@custom-keyvals)]
+			  (ref-set ~instance new-instance#))))
+		     ~instance)
 		   (defn- ~maker-name [api-info# struct#]
 		     (~taker-name (~constructor-name api-info# (:id struct#)) struct#)))))
 	     struct-names)
      (when fetch-struct
        `((defn- ~fetcher-name [instance#]
-	   (let [struct# (~fetch-func (:api-info instance#) (:id instance#))]
-	     (~(make-taker-name fetch-struct) instance# struct#)
-	     instance#))))
+	   (let [deref-instance# (deref instance#)
+		 struct# (~fetch-func (:api-info deref-instance#) (:id deref-instance#))]
+	     (~(make-taker-name fetch-struct) instance# struct#)))))
      (map (fn [slot-name]
 	    (let [slot-keyword (keyword (name slot-name))]
 	      (if fetch-struct
 		`(defmethod ~slot-name ~type-keyword [instance#]
 		   (dosync
-		    (or (deref (~slot-keyword instance#))
+		    (let [deref-instance# (deref instance#)
+			  value# (~slot-keyword deref-instance#)]
+		      (if (= value# :unfetched)
 			(do
 			  (~fetcher-name instance#)
-			  (deref (~slot-keyword instance#))))))
+			  (~slot-keyword (deref instance#)))
+			value#))))
 		`(defmethod ~slot-name ~type-keyword [instance#]
-		   (deref (~slot-keyword instance#))))))
+		   (~slot-keyword (deref instance#))))))
 	  source-slot-names)
      (map (fn [slot-name]
 	    (let [slot-keyword (keyword (name slot-name))
 		  slot-fetcher-name (make-slot-fetcher-name slot-name)]
 	      `(defmethod ~slot-name ~type-keyword [instance#]
-		 (fetch-if-necessary (~slot-keyword instance#) (~slot-fetcher-name instance#)))))
-	     custom-fetchers))))
+		 (fetch-if-necessary instance# ~slot-keyword ~slot-fetcher-name))))
+	  custom-fetchers))))
 
 (defapiclass user
   :sources {flickr-person
@@ -239,10 +246,10 @@
 ;;; generic getters
 
 (defn- get-owner [instance struct]
-  [(make-user (:api-info instance) (:owner struct))])
+  [(make-user (api-info instance) (:owner struct))])
 
 (defn- get-author [instance struct]
-  [(make-user (:api-info instance) (:author struct))])
+  [(make-user (api-info instance) (:author struct))])
 
 ;;; user fetchers
 
@@ -251,12 +258,12 @@
   (photos-search api-info per-page page :user-id (id user)))
 
 (defn- fetch-user-photosets [user]
-  (map #(make-photoset-from-flickr-photoset (:api-info user) %)
-       (photosets-get-list (:api-info user) (id user))))
+  (map #(make-photoset-from-flickr-photoset (api-info user) %)
+       (photosets-get-list (api-info user) (id user))))
 
 (defn- fetch-user-groups [user]
-  (map #(make-group-from-flickr-list-group (:api-info user) %)
-       (people-get-public-groups (:api-info user) (id user))))
+  (map #(make-group-from-flickr-list-group (api-info user) %)
+       (people-get-public-groups (api-info user) (id user))))
 
 (def-multi-page-fetcher [user]
   contacts make-user-from-flickr-public-contact
@@ -269,11 +276,11 @@
 ;;; photoset fetchers and getters
 
 (defn- fetch-photoset-photos [photoset]
-  (map #(make-photo-from-flickr-photoset-photo (:api-info photoset) %)
-       (photosets-get-photos (:api-info photoset) (id photoset))))
+  (map #(make-photo-from-flickr-photoset-photo (api-info photoset) %)
+       (photosets-get-photos (api-info photoset) (id photoset))))
 
 (defn- get-photo-owner-notes-tags-from-flickr-full-photo [instance struct]
-  (let [api-info (:api-info instance)]
+  (let [api-info (api-info instance)]
     [(make-user api-info (:owner struct))
      (map #(make-note-from-flickr-note api-info %) (:notes struct))
      (map #(make-tag-from-flickr-tag api-info %) (:tags struct))]))
@@ -287,23 +294,23 @@
 ;;; photo fetchers
 
 (defn- fetch-photo-sizes [photo]
-  (photos-get-sizes (:api-info photo) (id photo)))
+  (photos-get-sizes (api-info photo) (id photo)))
 
 (defn- fetch-photo-comments [photo]
-  (map #(make-comment-from-flickr-comment (:api-info photo) %)
-       (photos-comments-get-list (:api-info photo) (id photo))))
+  (map #(make-comment-from-flickr-comment (api-info photo) %)
+       (photos-comments-get-list (api-info photo) (id photo))))
 
 (defn- photo-contexts [photo]
-  (fetch-if-necessary (:contexts photo) (photos-get-all-contexts (:api-info photo) (id photo))))
+  (fetch-if-necessary (:contexts photo) (photos-get-all-contexts (api-info photo) (id photo))))
 
 (defn- fetch-photo-sets [photo]
-  (let [api-info (:api-info photo)
+  (let [api-info (api-info photo)
 	contexts (photo-contexts photo)]
     (map #(make-photoset-from-flickr-context-set api-info %)
 	 (filter #(= (:type %) :set) contexts))))
 
 (defn- fetch-photo-groups [photo]
-  (let [api-info (:api-info photo)
+  (let [api-info (api-info photo)
 	contexts (photo-contexts photo)]
     (map #(make-group-from-flickr-context-pool api-info %)
 	 (filter #(= (:type %) :pool) contexts))))
