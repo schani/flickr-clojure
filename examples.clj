@@ -20,9 +20,13 @@
 (use 'at.ac.tuwien.complang.flickr)
 (use 'clojure.contrib.seq-utils)
 
+(defn photo-frequencies-favorited-by-users [users]
+  "Returns the frequencies of photos favorited by users."
+  (frequencies (reduce concat (pmap favorites users))))
+
 (defn photos-favorited-by-n-users [users n]
   "Returns a sequence of the photos favorited by at least n users."
-  (let [freqs (frequencies (reduce concat (pmap favorites users)))]
+  (let [freqs (photo-frequencies-favorited-by-users users)]
     (keys (filter #(>= (val %) n) freqs))))
 
 (defn photos-favorited-by-n-contacts [user n]
