@@ -21,26 +21,42 @@
   (:use clojure.contrib.def
 	at.ac.tuwien.complang.flickr-api))
 
+(defstruct minimal-instance :api-info :id)
+
+(defn- minimal-instance? [x]
+  (if (= (class x) clojure.lang.Ref)
+    false
+    (do
+      (assert (:minimal-instances (:api-info x)))
+      true)))
+
+(defn- deref-instance [x]
+  (if (minimal-instance? x)
+    x
+    (deref x)))
+
 (defn id [instance]
-  (:id (deref instance)))
+  (:id (deref-instance instance)))
 
 (defn api-info [instance]
-  (:api-info (deref instance)))
+  (:api-info (deref-instance instance)))
 
 (defn- capitalize-string [s]
   (str (. Character toUpperCase (nth s 0)) (subs s 1)))
 
 (defn- fetch-if-necessary [instance slot fetcher]
-  (let [value (get (deref instance) slot)]
-    (if (= value :unfetched)
-      (let [fetched-value (fetcher instance)]
-	(dosync
-	 (if (= (get (deref instance) slot) :unfetched)
-	   (do
-	     (ref-set instance (assoc (deref instance) slot fetched-value))
-	     fetched-value)
-	   (get (deref instance) slot))))
-      value)))
+  (if (minimal-instance? instance)
+    (fetcher instance)
+    (let [value (get (deref instance) slot)]
+      (if (= value :unfetched)
+	(let [fetched-value (fetcher instance)]
+	  (dosync
+	   (if (= (get (deref instance) slot) :unfetched)
+	     (do
+	       (ref-set instance (assoc (deref instance) slot fetched-value))
+	       fetched-value)
+	     (get (deref instance) slot))))
+	value))))
 
 (defmacro- def-multi-page-fetcher [entity what converter fetch-page]
   (let [[entity] entity
@@ -66,7 +82,9 @@
     (concat auto-slots custom-slots)))
 
 (defn- lookup-or-create-instance [api-info type id creator]
-  (let [creator (fn [] (ref (with-meta (creator) {:type type})))]
+  (let [creator (if (:minimal-instances api-info)
+		  (fn [] (with-meta (creator) {:type type}))
+		  (fn [] (ref (with-meta (creator) {:type type}))))]
     (if (:instance-maps api-info)
       (dosync
        (let [instance-maps (deref (:instance-maps api-info))]
@@ -89,6 +107,7 @@
 	make-taker-name (fn [struct-name]
 			  (symbol (str class-name "-take-values-from-" struct-name)))
 	make-slot-fetcher-name (fn [slot-name] (symbol (str "fetch-" class-name "-" slot-name)))
+	have-fetcher (if fetch-struct true false)
 	source-slot-names (distinct (mapcat source-slots (vals sources)))
 	slot-names (concat custom-fetchers source-slot-names extra-slots)
 	slot-keywords (map #(keyword (name %)) slot-names)
@@ -102,7 +121,7 @@
     (concat
      '(do)
      (map (fn [slot-name]
-	    `(defmulti ~slot-name (fn [i#] (type (deref i#)))))
+	    `(defmulti ~slot-name (fn [i#] (type (deref-instance i#)))))
 	  (filter #(not (contains? (ns-interns *ns*) %)) slot-names))
      (map (fn [fetcher-name]
 	    `(defvar- ~fetcher-name))
@@ -111,8 +130,10 @@
 			  (map #(nth (deconstruct-source %) 2) (vals sources)))))
      `((defstruct ~defstruct-name :api-info :id ~@slot-keywords)
        (defn ~constructor-name [api-info# id#]
-	 (lookup-or-create-instance api-info# ~type-keyword id#
-				    (fn [] (struct-map ~defstruct-name :api-info api-info# :id id# ~@slot-constructors))))
+	 (let [creator# (if (and ~have-fetcher (:minimal-instances api-info#))
+			  (fn [] (struct-map minimal-instance :api-info api-info# :id id#))
+			  (fn [] (struct-map ~defstruct-name :api-info api-info# :id id# ~@slot-constructors)))]
+	   (lookup-or-create-instance api-info# ~type-keyword id# creator#)))
        (defmethod print-method ~type-keyword [instance# w#]
 	 (. w# write ~print-prefix)
 	 (. w# write (:id instance#))
@@ -136,32 +157,40 @@
 					    custom-slots)]
 		 `((defn- ~taker-name [~instance ~struct]
 		     (let [[~@custom-slots] ~getter-call]
-		       (dosync
-			(let [new-instance# (assoc (deref ~instance) ~@auto-keyvals ~@custom-keyvals)]
-			  (ref-set ~instance new-instance#))))
-		     ~instance)
+		       (if (minimal-instance? ~instance)
+			 (assoc ~instance ~@auto-keyvals ~@custom-keyvals)
+			 (dosync
+			  (let [new-instance# (assoc (deref ~instance) ~@auto-keyvals ~@custom-keyvals)]
+			    (ref-set ~instance new-instance#)
+			    ~instance)))))
 		   (defn- ~maker-name [api-info# struct#]
-		     (~taker-name (~constructor-name api-info# (:id struct#)) struct#)))))
+		     (let [instance# (~constructor-name api-info# (:id struct#))]
+		       (if (and ~have-fetcher (:minimal-instances api-info#))
+			 instance#
+			 (~taker-name instance# struct#)))))))
 	     struct-names)
      (when fetch-struct
        `((defn- ~fetcher-name [instance#]
-	   (let [deref-instance# (deref instance#)
+	   (let [deref-instance# (deref-instance instance#)
 		 struct# (~fetch-func (:api-info deref-instance#) (:id deref-instance#))]
 	     (~(make-taker-name fetch-struct) instance# struct#)))))
      (map (fn [slot-name]
 	    (let [slot-keyword (keyword (name slot-name))]
 	      (if fetch-struct
 		`(defmethod ~slot-name ~type-keyword [instance#]
-		   (dosync
-		    (let [deref-instance# (deref instance#)
-			  value# (~slot-keyword deref-instance#)]
-		      (if (= value# :unfetched)
-			(do
-			  (~fetcher-name instance#)
-			  (~slot-keyword (deref instance#)))
-			value#))))
+		   (if (minimal-instance? instance#)
+		     (let [instance# (~fetcher-name instance#)]
+		       (~slot-keyword instance#))
+		     (dosync
+		      (let [deref-instance# (deref instance#)
+			    value# (~slot-keyword deref-instance#)]
+			(if (= value# :unfetched)
+			  (do
+			    (~fetcher-name instance#)
+			    (~slot-keyword (deref instance#)))
+			  value#)))))
 		`(defmethod ~slot-name ~type-keyword [instance#]
-		   (~slot-keyword (deref instance#))))))
+		   (~slot-keyword (deref-instance instance#))))))
 	  source-slot-names)
      (map (fn [slot-name]
 	    (let [slot-keyword (keyword (name slot-name))
@@ -319,9 +348,11 @@
 
 (def request-authorization api-request-authorization)
 
-(defn complete-authorization [api-info persistence do-cache]
-  (let [api-info (api-complete-authorization api-info persistence)
+(defn complete-authorization [api-info & rest]
+  (let [{persistence :persistence minimal-instances :minimal-instances do-cache :do-cache
+	 :or {persistence nil minimal-instances false do-cache true}} (apply hash-map rest)
+	api-info (assoc (api-complete-authorization api-info persistence) :minimal-instances minimal-instances)
 	api-info (if do-cache
-		   (into api-info {:instance-maps (ref (hash-map))})
+		   (assoc api-info :instance-maps (ref (hash-map)))
 		   api-info)]
     (make-user api-info (:nsid (:user api-info)))))

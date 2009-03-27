@@ -50,9 +50,45 @@ contacts:
     user=> (count (photos-favorited-by-n-users (take 10 (contacts *my-user*)) 3))
     27
 
+### Persistence ###
+
+The namespaces **at.ac.tuwien.complang.persistence-fs** and
+**at.ac.tuwien.complang.persistence-bdb** provide functions for
+creating persistence objects.  A persistence object is used to
+persistently cache results to Flickr API queries so that these queries
+don't have to be done again in a different session or in the same
+session if minimal instances are used or caching is turned off.
+
 ### Reference ###
 
 TBD
+
+**(request-authorization *api-key* *shared-secret*)**
+
+**(complete-authorization *api-info* &key *:persistence* *:minimal-instances* *:do-cache*)**
+
+Completes authorization with Flickr and returns the logged in user.
+
+*:persistence* is either **nil** or a persistence object.  The default
+is **nil**.
+
+*:minimal-instances* is a boolean and specifies whether the objects
+representing Flickr objects should be minimal and only contain the ID
+of the Flickr object and the API info.  The alternative is for the
+objects to contain slots for all the Flickr object properties.  The
+advantage of the latter is that these properties are saved with the
+object and thus need only be fetched once, whereas with minimal
+instances they need to be fetched every time they are queried (which
+might not be a big issue if persistence is used).  The advantage of
+minimal instances is that less memory is used.  The default is
+**false**.
+
+*:do-cache* is a boolean specifying whether to cache instances based
+on their IDs.  The consequence is that the same Flickr object fetched
+via two different queries will use the same object, thereby both
+conserving memory and reducing additional queries.  Turning caching
+off usually makes most sense in combination with minimal instances.
+The default is **true**.
 
 ### Requirements ###
 
