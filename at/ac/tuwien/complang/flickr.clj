@@ -60,16 +60,13 @@
 
 (defmacro- def-multi-page-fetcher [entity what converter fetch-page]
   (let [[entity] entity
-	fetcher-name (symbol (str "fetch-" entity "-" what))
-	api-info 'api-info
-	per-page 'per-page
-	page 'page]
+	fetcher-name (symbol (str "fetch-" entity "-" what))]
     `(defn- ~fetcher-name [~entity]
-       (let [~api-info (api-info ~entity)
-	     api-seq# (collect-pages (fn [~per-page ~page]
+       (let [~'api-info (api-info ~entity)
+	     api-seq# (collect-pages (fn [~'per-page ~'page]
 				       ~fetch-page)
 				     500 1)]
-	 (map (fn [x#] (~converter ~api-info x#)) api-seq#)))))
+	 (map (fn [x#] (~converter ~'api-info x#)) api-seq#)))))
 
 (defn- deconstruct-source [src]
   (let [count (count src)]
@@ -142,27 +139,25 @@
 	       (let [taker-name (make-taker-name struct-name)
 		     maker-name (symbol (str "make-" class-name "-from-" struct-name))
 		     [auto-slots custom-slots getter] (deconstruct-source (sources struct-name))
-		     instance 'instance
-		     struct 'struct
 		     getter-call (if getter
-				   `(~getter ~instance ~struct)
+				   `(~getter ~'instance ~'struct)
 				   'nil)
 		     auto-keyvals (mapcat (fn [slot]
 					    (let [kw (keyword (name slot))]
-					      `(~kw (~kw ~struct))))
+					      `(~kw (~kw ~'struct))))
 					  auto-slots)
 		     custom-keyvals (mapcat (fn [slot]
 					      (let [kw (keyword (name slot))]
 						`(~kw ~slot)))
 					    custom-slots)]
-		 `((defn- ~taker-name [~instance ~struct]
+		 `((defn- ~taker-name [~'instance ~'struct]
 		     (let [[~@custom-slots] ~getter-call]
-		       (if (minimal-instance? ~instance)
-			 (assoc ~instance ~@auto-keyvals ~@custom-keyvals)
+		       (if (minimal-instance? ~'instance)
+			 (assoc ~'instance ~@auto-keyvals ~@custom-keyvals)
 			 (dosync
-			  (let [new-instance# (assoc (deref ~instance) ~@auto-keyvals ~@custom-keyvals)]
-			    (ref-set ~instance new-instance#)
-			    ~instance)))))
+			  (let [new-instance# (assoc (deref ~'instance) ~@auto-keyvals ~@custom-keyvals)]
+			    (ref-set ~'instance new-instance#)
+			    ~'instance)))))
 		   (defn- ~maker-name [api-info# struct#]
 		     (let [instance# (~constructor-name api-info# (:id struct#))]
 		       (if (and ~have-fetcher (:minimal-instances api-info#))

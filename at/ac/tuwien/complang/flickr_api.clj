@@ -305,17 +305,14 @@
 (defmacro- defcall [name-string args persistence & body]
   (let [full-method-name-string (str "flickr." name-string)
 	fun-name (symbol (lispify-method-name name-string))
-	persistent (= persistence :persistent)
-	api-info 'api-info
-	call 'call
-	call-with-string-modifier 'call-with-string-modifier]
-    `(defn ~fun-name [~api-info ~@args]
-       (let [~call
+	persistent (= persistence :persistent)]
+    `(defn ~fun-name [~'api-info ~@args]
+       (let [~'call
 	     (fn [& args#]
-	       (make-flickr-call ~api-info ~full-method-name-string ~persistent identity (apply sorted-map args#)))
-	     ~call-with-string-modifier
+	       (make-flickr-call ~'api-info ~full-method-name-string ~persistent identity (apply sorted-map args#)))
+	     ~'call-with-string-modifier
 	     (fn [modifier# & args#]
-	       (make-flickr-call ~api-info ~full-method-name-string ~persistent modifier# (apply sorted-map args#)))]
+	       (make-flickr-call ~'api-info ~full-method-name-string ~persistent modifier# (apply sorted-map args#)))]
 	 ~@body))))
 
 ;; returns a list of the items, the total number of pages, and the
