@@ -407,7 +407,7 @@
 	optional-args (mapcat #(if-let [value ((key %) keyvals-map)]
 				 (list (val %) value)
 				 ())
-			      {:user-id "user_id" :tags "tags" :tag-mode "tag-mode" :text "text"
+			      {:user-id "user_id" :tags "tags" :tag-mode "tag_mode" :text "text"
 			       :min-upload-data "min_upload_date" :max-upload-date "max_upload_date"
 			       :min-taken-date "min_taken_date" :max-taken-date "max_taken_date"
 			       :licence "licence" :sort "sort"})]
