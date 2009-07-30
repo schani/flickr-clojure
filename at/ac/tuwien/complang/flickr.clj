@@ -269,9 +269,21 @@
 
 ;;; generic photos search
 
+(defn- substitute-keyvals [m & keyvals]
+  (if (seq keyvals)
+    (let [[k func & keyvals-rest] keyvals]
+      (if (contains? m k)
+	(let [[nk nv] (func (get m k))]
+	  (apply substitute-keyvals (assoc (dissoc m k) nk nv) keyvals-rest))
+	(apply substitute-keyvals m keyvals-rest)))
+    m))
+
 (defn search-photos [api-info & keyvals]
-  (map #(make-photo-from-flickr-search-photo api-info %)
-       (collect-pages (fn [per-page page] (apply photos-search api-info per-page page keyvals)) 500 1)))
+  (let [keyvals-map (apply hash-map keyvals)
+	new-keyvals-map (substitute-keyvals keyvals-map :user #(vector :user-id (id %)))
+	new-keyvals (mapcat #(apply list %) new-keyvals-map)]
+    (map #(make-photo-from-flickr-search-photo api-info %)
+	 (collect-pages (fn [per-page page] (apply photos-search api-info per-page page new-keyvals)) 500 1))))
 
 ;;; find user
 
