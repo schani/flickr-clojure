@@ -267,6 +267,12 @@
 	    (raw text
 		 :custom (author) get-author)})
 
+;;; generic photos search
+
+(defn search-photos [api-info & keyvals]
+  (map #(make-photo-from-flickr-search-photo api-info %)
+       (collect-pages (fn [per-page page] (apply photos-search api-info per-page page keyvals)) 500 1)))
+
 ;;; generic getters
 
 (defn- get-owner [instance struct]
