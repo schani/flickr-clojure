@@ -34,6 +34,8 @@
 	   client (XmlRpcClient.)
 	   url (java.net.URL. "http://www.flickr.com/services/xmlrpc/")]
        (. config setServerURL url)
+       (. config setConnectionTimeout 2000)
+       (. config setReplyTimeout 15000)
        (. client setConfig config)
        client))
 
