@@ -273,6 +273,11 @@
   (map #(make-photo-from-flickr-search-photo api-info %)
        (collect-pages (fn [per-page page] (apply photos-search api-info per-page page keyvals)) 500 1)))
 
+;;; find user
+
+(defn find-user-by-username [api-info username]
+  (make-user-from-flickr-user api-info (people-find-by-username api-info username)))
+
 ;;; generic getters
 
 (defn- get-owner [instance struct]
