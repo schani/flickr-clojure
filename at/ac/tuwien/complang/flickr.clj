@@ -301,7 +301,7 @@
        (photos-comments-get-list (api-info photo) (id photo))))
 
 (defn- photo-contexts [photo]
-  (fetch-if-necessary (:contexts photo) (photos-get-all-contexts (api-info photo) (id photo))))
+  (fetch-if-necessary photo :contexts (fn [photo] (photos-get-all-contexts (api-info photo) (id photo)))))
 
 (defn- fetch-photo-sets [photo]
   (let [api-info (api-info photo)
