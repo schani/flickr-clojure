@@ -121,14 +121,14 @@
 
 (defapistruct flickr-group
   (id :id)
-  (name (:child :name :body))
+  (title (:child :name :body))
   (description (:child :description :body))
   (members (:child :members :body) :integer)
   (privacy (:child :privacy :body)))
 
 (defapistruct flickr-list-group
   (id :nsid)
-  (name :name)
+  (title :name)
   (admin :admin)
   (eighteenplus :eighteenplus :boolean))
 
