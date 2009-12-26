@@ -388,8 +388,8 @@
   (let [result (call-with-string-modifier #(str "<list>" % "</list>") "photo_id" photo-id)]
     (map (fn [item]
 	   (case (xml-tag item)
-	     :set (assoc (make-flickr-context-set item) :type 'set)
-	     :pool (assoc (make-flickr-context-pool item) :type 'pool)
+	     :set (assoc (make-flickr-context-set item) :type :set)
+	     :pool (assoc (make-flickr-context-pool item) :type :pool)
 	     (throw (Exception. (str "invalid context tag " (xml-tag item))))))
 	 (xml-children result))))
 
