@@ -40,3 +40,7 @@
   "Returns a sequence of users that are not user's contacts and each
    of which user has favorited at least threshold photos from."
   (difference (set (most-favorited-users user threshold)) (set (contacts user))))
+
+(defn largest-size [photo]
+  "Returns the size entry for the largest available size of photo."
+  (last (sort-by #(* (:width %) (:height %)) (sizes photo))))
