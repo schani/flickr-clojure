@@ -297,6 +297,23 @@
 (defn find-user-by-username [api-info username]
   (make-user-from-flickr-user api-info (people-find-by-username api-info username)))
 
+;;; resolve url
+
+(defn resolve-url [api-info url]
+  (cond (re-find #"flickr\.com/photos/[^/]+/?$" url)
+	(make-user-from-flickr-user api-info (at.ac.tuwien.complang.flickr-api/urls-lookup-user api-info url))
+	(re-find #"flickr\.com/photos/[^/]+/sets/[^/]+/?$" url)
+	(let [id (nth (re-find #"/sets/([^/]+)" url) 1)]
+	  (make-photoset-from-flickr-photoset-info api-info (at.ac.tuwien.complang.flickr-api/photosets-get-info api-info id)))
+	(re-find #"flickr\.com/groups/[^/]+/?$" url)
+	(make-group-from-flickr-list-group api-info (at.ac.tuwien.complang.flickr-api/urls-lookup-group api-info url))
+	(re-find #"flickr\.com/photos/[^/]+/tags/[^/]+/?$" url)
+	(let [matches (re-find #"/photos/([^/]+)/tags/([^/]+)" url)
+	      user-name (nth matches 1)
+	      user (resolve-url api-info (str "http://www.flickr.com/photos/" user-name "/"))
+	      tag (nth matches 2)]
+	  (search-photos api-info :user user :tags tag))))
+
 ;;; generic getters
 
 (defn- get-owner [instance struct]

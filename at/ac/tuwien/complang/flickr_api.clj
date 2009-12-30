@@ -129,6 +129,10 @@
   (members (:child :members :body) :integer)
   (privacy (:child :privacy :body)))
 
+(defapistruct flickr-url-group
+  (id :id)
+  (title (:child :groupname :body)))
+
 (defapistruct flickr-list-group
   (id :nsid)
   (title :name)
@@ -221,6 +225,10 @@
 
 (defapistruct flickr-user
   (id :nsid)
+  (username (:child :username :body)))
+
+(defapistruct flickr-url-user
+  (id :id)
   (username (:child :username :body)))
 
 ;; Uses flickr-not, flickr-tag and flickr-url, so must come after
@@ -435,6 +443,12 @@
 
 (defcall "test.login" [] :not-persistent
   (call))
+
+(defcall "urls.lookupGroup" [url] :persistent
+  (make-flickr-url-group (call "url" url)))
+
+(defcall "urls.lookupUser" [url] :persistent
+  (make-flickr-url-user (call "url" url)))
 
 (defn api-request-authorization [api-key shared-secret]
   (let [api-info {:api-key api-key :shared-secret shared-secret}
