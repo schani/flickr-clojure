@@ -267,6 +267,13 @@
 	    (raw text
 		 :custom (author) get-author)})
 
+;;; source url
+
+(defn source-url [photo size]
+  (let [suffixes {:square "_s", :thumbnail "_t", :small "_m", :medium "", :large "_b", :original "_o"}
+	suffix (get suffixes size)]
+    (str "http://farm" (farm photo) ".static.flickr.com/" (server photo) "/" (id photo) "_" (secret photo) suffix ".jpg")))
+
 ;;; generic photos search
 
 (defn- substitute-keyvals [m & keyvals]
