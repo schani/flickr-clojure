@@ -185,7 +185,7 @@
 ;;MISSING: num-views, num-favs
 (defapiclass photo
   :sources {flickr-full-photo
-	    (secret server isfavorite license rotation
+	    (secret server farm isfavorite license rotation
 		    title description
 		    ispublic isfriend isfamily
 		    posted taken takengranularity lastupdate
@@ -194,13 +194,13 @@
 		    urls
 		    :custom (owner notes tags) get-photo-owner-notes-tags-from-flickr-full-photo)
 	    flickr-search-photo
-	    (secret server title
+	    (secret server farm title
 		    ispublic isfriend isfamily
 		    :custom (owner) get-owner)
 	    flickr-photoset-photo
-	    (secret server title)
+	    (secret server farm title)
 	    flickr-favorite
-	    (secret server title
+	    (secret server farm title
 		    ispublic isfriend isfamily
 		    :custom (owner) get-owner)}
   :fetcher [flickr-full-photo photos-get-info]
