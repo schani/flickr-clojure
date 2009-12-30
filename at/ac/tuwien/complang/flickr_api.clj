@@ -34,6 +34,8 @@
 	   client (XmlRpcClient.)
 	   url (java.net.URL. "http://www.flickr.com/services/xmlrpc/")]
        (. config setServerURL url)
+       (. config setConnectionTimeout 2000)
+       (. config setReplyTimeout 15000)
        (. client setConfig config)
        client))
 
@@ -309,17 +311,14 @@
 (defmacro- defcall [name-string args persistence & body]
   (let [full-method-name-string (str "flickr." name-string)
 	fun-name (symbol (lispify-method-name name-string))
-	persistent (= persistence :persistent)
-	api-info 'api-info
-	call 'call
-	call-with-string-modifier 'call-with-string-modifier]
-    `(defn ~fun-name [~api-info ~@args]
-       (let [~call
+	persistent (= persistence :persistent)]
+    `(defn ~fun-name [~'api-info ~@args]
+       (let [~'call
 	     (fn [& args#]
-	       (make-flickr-call ~api-info ~full-method-name-string ~persistent identity (apply sorted-map args#)))
-	     ~call-with-string-modifier
+	       (make-flickr-call ~'api-info ~full-method-name-string ~persistent identity (apply sorted-map args#)))
+	     ~'call-with-string-modifier
 	     (fn [modifier# & args#]
-	       (make-flickr-call ~api-info ~full-method-name-string ~persistent modifier# (apply sorted-map args#)))]
+	       (make-flickr-call ~'api-info ~full-method-name-string ~persistent modifier# (apply sorted-map args#)))]
 	 ~@body))))
 
 ;; returns a list of the items, the total number of pages, and the
@@ -414,7 +413,7 @@
 	optional-args (mapcat #(if-let [value ((key %) keyvals-map)]
 				 (list (val %) value)
 				 ())
-			      {:user-id "user_id" :tags "tags" :tag-mode "tag-mode" :text "text"
+			      {:user-id "user_id" :tags "tags" :tag-mode "tag_mode" :text "text"
 			       :min-upload-data "min_upload_date" :max-upload-date "max_upload_date"
 			       :min-taken-date "min_taken_date" :max-taken-date "max_taken_date"
 			       :licence "licence" :sort "sort"})]

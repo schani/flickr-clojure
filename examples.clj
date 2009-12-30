@@ -18,11 +18,18 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (use 'at.ac.tuwien.complang.flickr)
+(use 'clojure.set)
 (use 'clojure.contrib.seq-utils)
+
+(defn combine-frequencies [& freqs] (apply merge-with + freqs))
+
+(defn photo-frequencies-favorited-by-users [users]
+  "Returns the frequencies of photos favorited by users."
+  (reduce combine-frequencies (pmap #(let [favs (favorites %)] (zipmap favs (repeat (count favs) 1))) users)))
 
 (defn photos-favorited-by-n-users [users n]
   "Returns a sequence of the photos favorited by at least n users."
-  (let [freqs (frequencies (reduce concat (pmap favorites users)))]
+  (let [freqs (photo-frequencies-favorited-by-users users)]
     (keys (filter #(>= (val %) n) freqs))))
 
 (defn photos-favorited-by-n-contacts [user n]

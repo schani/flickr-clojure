@@ -1,0 +1,23 @@
+<project name="format" default="jar">
+
+  <description>
+    Build flickr-clojure.
+  </description>
+
+  <property name="jarfile" value="flickr-clojure.jar"/>
+
+  <target name="clean" description="Remove generated files and directories.">
+    <delete file="${jarfile}"/>
+    <delete dir="${build}"/>
+  </target>
+
+  <target name="jar" description="Create jar file.">
+    <jar jarfile="${jarfile}">
+      <fileset file="COPYING"/>
+      <fileset dir="." includes="at/**/*.clj"/>
+      <manifest>
+        <attribute name="Class-Path" value="."/>
+      </manifest>
+    </jar>
+  </target>
+</project>
