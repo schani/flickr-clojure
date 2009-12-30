@@ -294,7 +294,13 @@
 ;;; photo fetchers
 
 (defn- fetch-photo-sizes [photo]
-  (photos-get-sizes (api-info photo) (id photo)))
+  (let [labels {"Square" :square, "Thumbnail" :thumbnail, "Small" :small, "Medium" :medium, "Large" :large, "Original" :original}]
+    (map (fn [size]
+	   (let [label (get labels (:label size))]
+	     (if label
+	       (assoc size :label label)
+	       size)))
+	 (photos-get-sizes (api-info photo) (id photo)))))
 
 (defn- fetch-photo-comments [photo]
   (map #(make-comment-from-flickr-comment (api-info photo) %)
