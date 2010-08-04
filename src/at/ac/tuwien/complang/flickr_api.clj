@@ -264,7 +264,7 @@
 	    (map make-flickr-url (xml-children (xml-child :urls xml))))))
 
 (defn- parse-xml-from-string [string]
-  (let [stream (ByteArrayInputStream. (. string getBytes))]
+  (let [stream (ByteArrayInputStream. (. string getBytes "UTF-8"))]
     (parse stream)))
 
 (defn- call-args-string [args]
