@@ -266,6 +266,13 @@
 	    (raw text
 		 :custom (author) get-author)})
 
+;;; photopage url
+
+(defn photopage-url [photo]
+  (let [urls (urls photo)
+        photopage (first (filter #(= (:type %) "photopage") urls))]
+    (:url photopage)))
+
 ;;; source url
 
 (defn source-url [photo size]
