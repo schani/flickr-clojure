@@ -2,7 +2,7 @@
 
 ;; flickr-clojure --- Flickr API bindings for Clojure
 
-;; Copyright (C) 2009 Mark Probst
+;; Copyright (C) 2009-2012 Mark Probst
 
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -18,8 +18,7 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (ns at.ac.tuwien.complang.flickr
-  (:use clojure.contrib.def
-	at.ac.tuwien.complang.flickr-api))
+  (:use at.ac.tuwien.complang.flickr-api))
 
 (defstruct minimal-instance :api-info :id)
 
@@ -58,7 +57,7 @@
 	     (get (deref instance) slot))))
 	value))))
 
-(defmacro- def-multi-page-fetcher [entity what converter fetch-page]
+(defmacro ^{:private true} def-multi-page-fetcher [entity what converter fetch-page]
   (let [[entity] entity
 	fetcher-name (symbol (str "fetch-" entity "-" what))]
     `(defn- ~fetcher-name [~entity]
@@ -98,7 +97,7 @@
 	     instance))))
       (creator))))
 
-(defmacro- defapiclass [class-name & keyvals]
+(defmacro ^{:private true} defapiclass [class-name & keyvals]
   (let [{sources :sources [fetch-struct fetch-func] :fetcher
 	 custom-fetchers :custom-fetchers extra-slots :extra-slots} (apply hash-map keyvals)
 	make-taker-name (fn [struct-name]
@@ -121,7 +120,7 @@
 	    `(defmulti ~slot-name (fn [i#] (type (deref-instance i#)))))
 	  (filter #(not (contains? (ns-interns *ns*) %)) slot-names))
      (map (fn [fetcher-name]
-	    `(defvar- ~fetcher-name))
+	    `(def ^{:private true} ~fetcher-name))
 	  (filter #(and (not (nil? %)) (not (contains? (ns-interns *ns*) %)))
 		  (concat (map make-slot-fetcher-name custom-fetchers)
 			  (map #(nth (deconstruct-source %) 2) (vals sources)))))

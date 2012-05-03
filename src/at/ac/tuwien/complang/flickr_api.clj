@@ -2,7 +2,7 @@
 
 ;; flickr-clojure --- Flickr API bindings for Clojure
 
-;; Copyright (C) 2009 Mark Probst
+;; Copyright (C) 2009-2012 Mark Probst
 
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -21,15 +21,12 @@
   (:import [org.apache.xmlrpc.client XmlRpcClient XmlRpcClientConfigImpl]
 	   [java.io ByteArrayInputStream])
   (:use at.ac.tuwien.complang.utils
-	clojure.xml
-	clojure.contrib.seq-utils
-	clojure.contrib.fcase
-	clojure.contrib.def))
+	clojure.xml))
 
 (defmulti persistence-get (fn [p key] (type p)))
 (defmulti persistence-put (fn [p key val] (type p)))
 
-(defvar- xml-rpc-client
+(def ^{:private true} xml-rpc-client
      (let [config (XmlRpcClientConfigImpl.)
 	   client (XmlRpcClient.)
 	   url (java.net.URL. "http://www.flickr.com/services/xmlrpc/")]
@@ -73,14 +70,14 @@
 	(nil? value) :unknown
 	true (throw (Exception. (str "Value to be converted (" value ") must be string or nil")))))
 
-(defmacro- defapistruct [name & members]
+(defmacro ^{:private true} defapistruct [name & members]
   (let [parser-name (symbol (str "make-" name))
 	xml-arg (gensym)
 	member-inits (mapcat (fn [member]
 			       (let [[name path & type-list] member
 				     type (or (first type-list) :string)
 				     member-keyword (keyword (str name))]
-				 (if (and (list? path) (includes? '(fn fn*) (first path)))
+				 (if (and (list? path) (#{'fn 'fn*} (first path)))
 				   `(~member-keyword (~path ~xml-arg))
 				   `(~member-keyword (convert-type (xml-follow-path ~xml-arg '~path) ~type)))))
 			     members)]
@@ -294,7 +291,7 @@
   (when-let [persistence (:persistence api-info)]
     (persistence-put persistence (str method (call-args-string args)) result)))
 
-(defvar *print-calls* false)
+(def *print-calls* false)
 
 (defn- make-flickr-call [api-info method persistent string-modifier args]
   (if-let [result (and persistent (lookup-call api-info method args))]
@@ -316,7 +313,7 @@
 			     true (list c)))
 		     string)))
 
-(defmacro- defcall [name-string args persistence & body]
+(defmacro ^{:private true} defcall [name-string args persistence & body]
   (let [full-method-name-string (str "flickr." name-string)
 	fun-name (symbol (lispify-method-name name-string))
 	persistent (= persistence :persistent)]
